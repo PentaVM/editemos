@@ -658,9 +658,9 @@ mod tests {
     #[test]
     fn pauses_are_cut_out_but_asides_are_not() {
         let segs = vec![Segment { start: 0.0, end: 10.0, ..Default::default() }, Segment { start: 50.0, end: 53.0, context: true, ..Default::default() }];
-        let out = tighten(&segs, &[(3.0, 5.0), (7.0, 7.3), (51.0, 52.5)], 0.6);
+        let out = tighten(&segs, &[(2.0, 4.0), (7.0, 7.3), (51.0, 52.5)], 0.6);
         assert_eq!(out.len(), 3, "{out:?}");
-        assert!((out[0].end - 3.14).abs() < 1e-6 && (out[1].start - 4.9).abs() < 1e-6);
+        assert!((out[0].end - 2.14).abs() < 1e-6 && (out[1].start - 3.9).abs() < 1e-6);
         assert_eq!((out[2].start, out[2].end), (50.0, 53.0));
         let kept: f64 = out.iter().map(|s| s.end - s.start).sum();
         assert!(kept < 13.0 - 1.7 + 0.01);
