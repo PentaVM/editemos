@@ -124,9 +124,25 @@ pub struct Built {
 
 /* ------------------------------ planning helpers ------------------------------ */
 
+/// Lower case without accents, so "dificiles" finds "difíciles".
+fn fold(s: &str) -> String {
+    s.to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'á' | 'à' | 'ä' | 'â' => 'a',
+            'é' | 'è' | 'ë' | 'ê' => 'e',
+            'í' | 'ì' | 'ï' | 'î' => 'i',
+            'ó' | 'ò' | 'ö' | 'ô' => 'o',
+            'ú' | 'ù' | 'ü' | 'û' => 'u',
+            'ñ' => 'n',
+            other => other,
+        })
+        .collect()
+}
+
 /// Where the words of `query` were said. Best matches first.
 pub fn search(cues: &[Cue], query: &str, limit: usize) -> Vec<Cue> {
-    let want: Vec<String> = query.to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| w.len() >= 2).map(String::from).collect();
+    let want: Vec<String> = fold(query).split(|c: char| !c.is_alphanumeric()).filter(|w| w.len() >= 2).map(String::from).collect();
     if want.is_empty() {
         return Vec::new();
     }
@@ -139,7 +155,7 @@ pub fn search(cues: &[Cue], query: &str, limit: usize) -> Vec<Cue> {
                 break;
             }
             let text = cues[i..i + span].iter().map(|c| c.text.as_str()).collect::<Vec<_>>().join(" ");
-            let low = text.to_lowercase();
+            let low = fold(&text);
             let found = want.iter().filter(|w| low.split(|c: char| !c.is_alphanumeric()).any(|t| t == w.as_str() || (w.len() >= 4 && t.starts_with(w.as_str())))).count();
             if found == want.len() {
                 // every word present: shorter spans are tighter matches
@@ -648,6 +664,8 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert_eq!((hits[0].start, hits[0].end), (10.0, 14.0), "the phrase straddles two lines");
         assert!(search(&cues, "nothing like this", 5).is_empty());
+        let es = vec![cue(1.0, 3.0, "los niveles son progresivamente difíciles")];
+        assert_eq!(search(&es, "niveles dificiles", 3).len(), 1, "accents do not hide a match");
 
         let mut story = Story {
             segments: vec![Segment { start: 299.5, end: 306.5, ..Default::default() }],
