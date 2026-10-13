@@ -126,6 +126,40 @@ impl Ctx {
                 p.save_brand(&br)?;
                 self.refresh(&p);
             }
+            // the brand stated directly: by a person, or by the agent after looking
+            "set" => {
+                let mut patch = a.clone();
+                // `text` is the type colour when it is a colour, a description otherwise
+                let text_is_colour = s(a, "text").map(|t| crate::color::parse_color(&t).is_some()).unwrap_or(false);
+                let words = s(a, "description").or_else(|| if text_is_colour { None } else { s(a, "text") });
+                if let Some(t) = words {
+                    // what the sentence says first, explicit fields on top of it
+                    let mut from_words = crate::brandai::from_text(&t);
+                    if let (Some(dst), Some(src)) = (from_words.as_object_mut(), a.as_object()) {
+                        for (k, v) in src {
+                            if k != "description" && (k != "text" || text_is_colour) {
+                                dst.insert(k.clone(), v.clone());
+                            }
+                        }
+                    }
+                    patch = from_words;
+                }
+                let changed = crate::brandai::apply(&self.home, &p, &patch, s(a, "source").as_deref().unwrap_or("manual"))?;
+                if changed.is_empty() {
+                    return fail("nothing to set. Give colours (primary, secondary, background, text), heading_font, body_font, name, tagline, voice, or text=\"a description with #hex colours\"");
+                }
+                let br = p.load_brand();
+                return Ok(json!({"changed": changed, "palette": br.palette, "fonts": br.fonts, "tempo": br.edit.tempo}));
+            }
+            "from-images" | "from_images" => {
+                let files = list(a, "files");
+                return crate::brandai::from_images(&self.home, &p, &files);
+            }
+            "evidence" => return Ok(crate::brandai::evidence(&p)),
+            "refine" => {
+                let adapter = s(a, "adapter").or_else(|| p.config.adapter.clone()).unwrap_or_else(|| "claude".into());
+                return crate::brandai::refine(&self.home, &p, &adapter, !b(a, "no_vision"), &s(a, "notes").unwrap_or_default());
+            }
             "sheet" => {
                 // the brand identity on one page, drawn by the project's own renderer
                 let logo = br
@@ -445,8 +479,26 @@ impl Ctx {
     pub fn clips_op(&self, a: &Value) -> Result<Value> {
         let p = self.project(a)?;
         let Some(input) = s(a, "file").or_else(|| s(a, "input")) else { return fail("clips needs the recording: file=<path>") };
+        // a link instead of a file: fetch it (and its subtitles) into the project first
+        let mut fetched_srt: Option<PathBuf> = None;
+        let input = if clips::is_url(&input) {
+            let (video, srt) = clips::fetch(&input, &p.dir.join("sources"), n(a, "source_height").map(|v| v as u32).unwrap_or(1080), s(a, "section").as_deref())?;
+            fetched_srt = srt;
+            path_str(&video)
+        } else {
+            input
+        };
         let input = std::fs::canonicalize(&input).map_err(|_| crate::error::Error(format!("{input} not found")))?;
         let d = clips::Options::default();
+        // captions in the project's own type and colours (libass wants &HBBGGRR)
+        let br = p.load_brand();
+        let ass = |hex: &str| crate::color::parse_color(hex).map(|c| format!("&H00{:02X}{:02X}{:02X}", c.2, c.1, c.0)).unwrap_or_else(|| "&H00FFFFFF".into());
+        let caption_style = format!(
+            "Fontname={},Fontsize=15,Bold=1,PrimaryColour={},OutlineColour={},BorderStyle=1,Outline=2,Shadow=0,MarginV=64,Alignment=2",
+            if br.edit.type_tokens.heading.is_empty() { "Arial" } else { &br.edit.type_tokens.heading },
+            ass(&br.edit.colors.fg),
+            ass(&br.edit.colors.bg)
+        );
         let o = clips::Options {
             out_dir: s(a, "out").map(PathBuf::from).unwrap_or_else(|| p.dir.join("clips")),
             input,
@@ -455,9 +507,11 @@ impl Ctx {
             max_s: n(a, "max").unwrap_or(d.max_s),
             aspect: s(a, "aspect").unwrap_or(d.aspect),
             height: n(a, "height").map(|v| v as u32).unwrap_or(d.height),
-            transcript: s(a, "transcript").map(PathBuf::from),
+            transcript: s(a, "transcript").map(PathBuf::from).or(fetched_srt),
             copy: b(a, "copy"),
             burn: b(a, "burn"),
+            layout: s(a, "layout").unwrap_or(d.layout),
+            caption_style: Some(caption_style),
             plan_only: b(a, "plan_only"),
             jobs: n(a, "jobs").map(|v| v as usize).unwrap_or(d.jobs),
         };

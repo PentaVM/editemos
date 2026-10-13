@@ -86,6 +86,30 @@ editemos start "Estudio Brasa" --adapter claude --effort high
 
 <p align="center"><img src="docs/img/brand-sheet.png" alt="hoja de marca" width="820"></p>
 
+## De dónde sale la marca
+
+No necesitas un sitio web ni scrapear nada.
+
+| Tienes | Haz esto | Qué pasa |
+| --- | --- | --- |
+| solo una idea | dilo en el chat, o `editemos brand describe "oscuro, verde neón #19e3a1, fuente Russo One"` | colores y tipografías salen de la frase |
+| valores exactos | `editemos brand set --primary "#19e3a1" --heading-font "Russo One"` | queda fijado |
+| un logo o un banner | adjúntalo en el chat, o `editemos brand from-images logo.png banner.png` | paleta desde las imágenes |
+| un canal o perfil | `editemos extract https://www.youtube.com/@tucanal` | avatar, banner, miniaturas, nombre y descripción; **el rojo, morado o degradado de la plataforma no es tu marca y se deja fuera** |
+| un sitio web | `editemos extract https://tusitio.com` | HTTP directo, luego navegador, luego Scrapling si el sitio se niega |
+
+En un perfil solo cuenta lo que subió el creador; las miniaturas apoyan un color pero nunca lo
+eligen, y una identidad en blanco y negro se queda en blanco y negro. Después un modelo tiene la
+última palabra: `editemos brand evidence` muestra cada color candidato con su origen y las
+imágenes, y `editemos brand refine --adapter claude` deja que un modelo separe lo del creador de
+lo de la plataforma. Dentro de Claude el propio agente mira las imágenes y corrige la marca.
+
+Clips desde un enlace: `editemos clips <url> --section 600-1500 --layout fit --burn` baja la
+grabación y sus subtítulos con yt-dlp (si está instalado), limpia los subtítulos automáticos
+repetidos y los quema con la tipografía y los colores del proyecto. `--layout fit` conserva la
+imagen completa sobre una copia desenfocada (gameplay); `crop` rellena desde el centro. Úsalo con
+material que tengas derecho a editar.
+
 ## Usarlo desde tu agente
 
 ```bash
@@ -130,7 +154,7 @@ medición; detalles y la corrida en reposo en [docs/BENCHMARKS.md](docs/BENCHMAR
 
 ## Estado y límites
 
-Versión 0.1, con 48 tests. Límites, dichos sin rodeos:
+Versión 0.1, con 54 tests. Límites, dichos sin rodeos:
 
 - Desarrollado y medido en Windows. Linux y macOS compilan y pasan la suite en CI, pero la
   detección de ventanas de Kdenlive ahí depende de `wmctrl` o AppleScript y se ha usado mucho menos.

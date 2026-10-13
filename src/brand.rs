@@ -162,20 +162,36 @@ pub fn derive_edit_brand(b: &Brand) -> EditBrand {
             accent_pick = Some(c);
         }
     }
-    let accent = accent_pick.unwrap_or_else(|| Rgb::from_hsl((seed % 360) as f64, 0.78, 0.55));
-    if accent_pick.is_none() {
-        why.push("no usable accent in the palette: derived one from the seed".into());
-    }
+    // a stated primary is the accent, even when it is white or grey: a monochrome
+    // identity stays monochrome instead of being handed an invented colour
+    let accent = match (tok("primary"), accent_pick) {
+        (Some(p), _) if contrast(p, bg) >= 2.0 => p,
+        (Some(_), Some(c)) => c,
+        (Some(p), None) => p,
+        (None, Some(c)) => c,
+        (None, None) => {
+            why.push("no usable accent in the palette: derived one from the seed".into());
+            Rgb::from_hsl((seed % 360) as f64, 0.78, 0.55)
+        }
+    };
     let (ah, as_, al) = accent.hsl();
-    let accent2 = b
-        .palette
-        .iter()
-        .filter_map(|c| parse_color(&c.hex))
-        .find(|c| {
-            let (h, s, _) = c.hsl();
-            s > 0.2 && ((h - ah).abs().min(360.0 - (h - ah).abs())) > 50.0
-        })
-        .unwrap_or_else(|| Rgb::from_hsl(ah + 150.0, as_.min(0.7), al.clamp(0.4, 0.62)));
+    let monochrome = as_ < 0.12;
+    if monochrome {
+        why.push("the brand is monochrome: no second hue is invented".into());
+    }
+    let accent2 = tok("secondary").filter(|c| c.dist(accent) > 30.0).unwrap_or_else(|| {
+        if monochrome {
+            return Rgb(((fg.0 as u16 + bg.0 as u16) / 2) as u8, ((fg.1 as u16 + bg.1 as u16) / 2) as u8, ((fg.2 as u16 + bg.2 as u16) / 2) as u8);
+        }
+        b.palette
+            .iter()
+            .filter_map(|c| parse_color(&c.hex))
+            .find(|c| {
+                let (h, s, _) = c.hsl();
+                s > 0.2 && ((h - ah).abs().min(360.0 - (h - ah).abs())) > 50.0
+            })
+            .unwrap_or_else(|| Rgb::from_hsl(ah + 150.0, as_.min(0.7), al.clamp(0.4, 0.62)))
+    });
     let muted = Rgb(((fg.0 as u16 + bg.0 as u16 * 2) / 3) as u8, ((fg.1 as u16 + bg.1 as u16 * 2) / 3) as u8, ((fg.2 as u16 + bg.2 as u16 * 2) / 3) as u8);
 
     // type

@@ -74,6 +74,57 @@ fn clips_finds_the_loud_moments_and_cuts_them() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[test]
+fn a_brand_can_be_stated_described_or_shown_without_any_website() {
+    let root = common::temp_home("manual");
+    let ctx = common::ctx_in(&root);
+    ctx.project_op(&json!({"action": "create", "name": "Canal Uno", "activate": true})).unwrap();
+
+    // in the user's own words
+    let r = ctx.brand_op(&json!({"action": "set", "description": "Canal de coches. Oscuro #0d0d12, texto #f4f1ea, acento #19e3a1. Fuente: Russo One"})).unwrap();
+    assert!(r["changed"].to_string().contains("primary"));
+    let b = ctx.brand_op(&json!({})).unwrap();
+    assert_eq!(b["edit"]["colors"]["accent"], "#19e3a1");
+    assert_eq!(b["edit"]["colors"]["bg"], "#0d0d12");
+    assert_eq!(b["edit"]["type_tokens"]["heading"], "Russo One");
+
+    // stated field by field; `text` is a colour here, not a description
+    ctx.brand_op(&json!({"action": "set", "primary": "#ff5a36", "text": "#ffffff", "voice": ["dry", "fast"]})).unwrap();
+    let b = ctx.brand_op(&json!({})).unwrap();
+    assert_eq!(b["edit"]["colors"]["accent"], "#ff5a36");
+    assert_eq!(b["edit"]["colors"]["fg"], "#ffffff");
+    assert_eq!(b["voice"]["descriptors"], json!(["dry", "fast"]));
+    assert!(ctx.brand_op(&json!({"action": "set", "primary": "not-a-colour"})).is_err());
+
+    // a black-and-white identity stays black and white: no invented hue
+    ctx.brand_op(&json!({"action": "set", "primary": "#fafafa", "background": "#000000", "text": "#fafafa"})).unwrap();
+    let b = ctx.brand_op(&json!({})).unwrap();
+    assert_eq!(b["edit"]["colors"]["accent"], "#fafafa");
+    let a2 = b["edit"]["colors"]["accent2"].as_str().unwrap();
+    assert!(a2[1..3] == a2[3..5] && a2[3..5] == a2[5..7], "second colour of a monochrome brand is a grey, got {a2}");
+
+    // from a picture, and with a model judging the evidence
+    let logo = root.join("logo.png");
+    let mut img = image::RgbaImage::from_pixel(64, 64, image::Rgba([12, 12, 16, 255]));
+    for (x, _, px) in img.enumerate_pixels_mut() {
+        if x > 20 {
+            *px = image::Rgba([25, 227, 161, 255]);
+        }
+    }
+    img.save(&logo).unwrap();
+    let r = ctx.brand_op(&json!({"action": "from-images", "files": [logo.to_string_lossy()]})).unwrap();
+    assert!(r["palette"].to_string().contains("#19e3a1"), "{r}");
+    let reply = json!({"choices": [{"message": {"role": "assistant", "content": "Here:\n{\"primary\":\"#19e3a1\",\"drop\":[\"#ff0000\"],\"voice\":[\"calm\"],\"reason\":\"the red is the platform's\"}"}}]}).to_string();
+    let base = common::serve(vec![("/v1/chat/completions", "application/json", reply.into_bytes())]);
+    std::fs::write(root.join("adapters.toml"), format!("[adapters.judge]\nkind = \"openai-chat\"\nurl = \"{base}/v1/chat/completions\"\nmodel = \"tiny\"\n")).unwrap();
+    let ev = ctx.brand_op(&json!({"action": "evidence"})).unwrap();
+    assert!(!ev["images"].as_array().unwrap().is_empty(), "the judge is shown the pictures");
+    let r = ctx.brand_op(&json!({"action": "refine", "adapter": "judge"})).unwrap();
+    assert!(r["reason"].as_str().unwrap().contains("platform"));
+    assert_eq!(ctx.brand_op(&json!({})).unwrap()["voice"]["descriptors"], json!(["calm"]));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 fn http(port: u16, req: &str) -> (String, Vec<u8>) {
     let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
     s.write_all(req.as_bytes()).unwrap();
