@@ -104,6 +104,7 @@ pub fn tools() -> Vec<Value> {
                     ("tags", tags.clone()),
                     ("confidence", prop("string", "low | medium | high")),
                     ("pinned", prop("boolean", "Always include in the context pack")),
+                    ("global", prop("boolean", "A preference of the person, for every project (taste that is not about one client)")),
                     ("supersedes", prop("string", "Id of the memory this replaces")),
                     ("source", prop("string", "Where it came from (user, agent, review)")),
                 ],
@@ -296,9 +297,23 @@ pub fn tools() -> Vec<Value> {
         tool(
             "editemos_clips",
             "Clips from a long recording",
-            "Clips mode: give it a stream or any long recording and get the best moments already cut and framed. One audio-only pass (hundreds of times faster than real time) scores loudness and liveliness, snaps every cut to a pause so nothing starts mid-word, and exports in parallel as 9:16, 1:1, 4:5 or 16:9. A transcript (.srt/.vtt) adds word scoring and per-clip subtitles. Writes a manifest and an EDL so a person can correct the picks. plan_only=true only chooses; copy=true is instant (stream copy, source framing).",
+            "Clips mode: give it a stream or any long recording and get the best moments already cut and framed. One audio-only pass (hundreds of times faster than real time) scores loudness and liveliness, snaps every cut to a pause so nothing starts mid-word, and exports in parallel as 9:16, 1:1, 4:5 or 16:9. A transcript (.srt/.vtt) adds word scoring and per-clip subtitles. Writes a manifest and an EDL so a person can correct the picks. plan_only=true only chooses; copy=true is instant (stream copy, source framing). \
+             That default (no action) is the quick pass. For clips that are EDITED, you are the editor: action=transcript returns the words with their times (from/to narrow it); read them and plan each clip as a small story: a hook in the first two seconds, several segments in the order they should play so dead time is skipped, an ending (\"natural\", or \"punchline\" to stop dead on the last word when the cut itself is the joke), a title of at most six words, and context only when a viewer would be lost: {query: words said elsewhere in the recording, label: up to four words} is found by search and flashed with its label. Then action=build with spec={\"clips\":[{name,title,end,segments:[{start,end,why}],context:[{query,label,before_segment}]}]}. Pauses are removed, captions are transcribed from the clip's own audio word by word (whisper, local) in the project's typeface. action=search finds where something was said; action=story lets another model plan (adapter, count, seconds, notes).",
             schema(
                 vec![
+                    ("action", prop("string", "(none) quick pass | transcript | search | build | story | transcribe")),
+                    ("spec", json!({"type": "object", "description": "The plan for action=build: {\"clips\":[{\"name\":\"slug\",\"title\":\"...\",\"end\":\"natural|punchline\",\"segments\":[{\"start\":12.3,\"end\":20.1,\"why\":\"hook\",\"label\":\"optional on-screen label\",\"zoom\":1.0}],\"context\":[{\"query\":\"words\",\"label\":\"UP TO FOUR WORDS\",\"before_segment\":1,\"seconds\":3}]}]}"})),
+                    ("query", prop("string", "Words to find (search)")),
+                    ("from", prop("number", "Start of the range in seconds (transcript, story)")),
+                    ("to", prop("number", "End of the range in seconds (transcript, story)")),
+                    ("seconds", prop("number", "Target clip length for action=story (default 60)")),
+                    ("adapter", prop("string", "Model that plans (story)")),
+                    ("notes", prop("string", "What the user asked for, in their words (story)")),
+                    ("transcribe", prop("boolean", "No captions available: listen to the whole recording with whisper first")),
+                    ("language", prop("string", "Spoken language code, e.g. en, es (default auto)")),
+                    ("max_pause", prop("number", "Remove pauses longer than this many seconds (default 0.55; 0 keeps them)")),
+                    ("no_captions", prop("boolean", "Build without captions")),
+                    ("no_punch", prop("boolean", "Do not alternate a slight push-in across jump cuts")),
                     ("file", prop("string", "The recording: a file, or a link (fetched with yt-dlp if installed; only for footage the user may edit)")),
                     ("layout", prop("string", "crop (fill from the centre, default) | fit (whole picture over a blurred copy: gameplay, screen recordings)")),
                     ("section", prop("string", "With a link: only this part, e.g. 600-1500 (seconds) or 00:10:00-00:25:00")),
@@ -318,6 +333,25 @@ pub fn tools() -> Vec<Value> {
             ),
             false,
             false,
+        ),
+        tool(
+            "editemos_fonts",
+            "Typefaces",
+            "The typeface for on-screen text. A system fallback is never acceptable: a face is chosen from a catalogue of open fonts by what the brand is, downloaded once and remembered. actions: show (default: what this project uses and why, with alternatives), list (the catalogue with tags), set (family; global=true makes it the user's standing choice for every project), reject (family, reason; global=true means never again anywhere), prefs (caps=true|false, words=per caption line). When the user says a typeface is bad, reject it (ask whether for this project or always) and show what replaces it; when they like one, set it.",
+            schema(
+                vec![
+                    ("action", prop("string", "show | list | set | reject | prefs")),
+                    ("family", prop("string", "Catalogue family, e.g. Anton")),
+                    ("global", prop("boolean", "Apply to every project of this user")),
+                    ("reason", prop("string", "Why, in the user's words")),
+                    ("heading", prop("boolean", "Also use it for titles (set)")),
+                    ("caps", prop("boolean", "Captions in capitals (prefs)")),
+                    ("words", prop("integer", "Words per caption line (prefs)")),
+                ],
+                &[],
+            ),
+            false,
+            true,
         ),
         tool(
             "editemos_session",
@@ -424,6 +458,7 @@ fn clip(mut s: String) -> String {
 pub fn call_tool(ctx: &Ctx, name: &str, args: &Value) -> Value {
     let result: crate::error::Result<Value> = match name {
         "editemos_clips" => ctx.clips_op(args),
+        "editemos_fonts" => ctx.fonts_op(args),
         "editemos_session" => ctx.session_op(args),
         "editemos_studio" => ctx.studio_op(args),
         "editemos_context" => ctx.context_pack(args),

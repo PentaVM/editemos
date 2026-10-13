@@ -40,6 +40,11 @@ const BOOL_FLAGS: &[&str] = &[
     "plan-only",
     "prune",
     "quick",
+    "global",
+    "transcribe",
+    "no-captions",
+    "no-punch",
+    "heading",
 ];
 const NUM_KEYS: &[&str] = &[
     "fps",
@@ -61,6 +66,11 @@ const NUM_KEYS: &[&str] = &[
     "height",
     "port",
     "source_height",
+    "from",
+    "to",
+    "seconds",
+    "max_pause",
+    "words",
 ];
 
 const HELP: &str = "\
@@ -76,6 +86,17 @@ START HERE
   chat [--adapter deepseek|openai|openrouter|local|lmstudio] [--model M]   built-in chat with tools
   clips <recording or link> [--layout crop|fit] [--section 600-1500] [--count 5] [--min 15] [--max 60] [--aspect 9:16|1:1|4:5|16:9|source]
         [--transcript F.srt] [--burn] [--copy] [--plan-only]   best moments, cut and framed
+
+STORY CLIPS (edited, not just cut out)
+  clips transcript <recording> [--from S --to S]      the words with their times, to plan from
+  clips search <recording> <words>                    where something was said
+  clips story <recording> [--adapter A] [--count 3] [--seconds 60] [--notes \"...\"]   a model plans, this builds
+  clips build <recording> --spec-file plan.json       build a plan you or your agent wrote
+        segments in any order, pauses removed, word-by-word captions from the clip's own audio,
+        a title, context flashes found by what was said, natural or punchline endings
+  fonts [show|list] | fonts set <family> [--global] | fonts reject <family> [--global] [--reason R]
+  tools install-whisper                               accurate captions, on this machine
+  memory add \"...\" --global                           a preference for every project
 
 PROJECTS
   init <name> [--site URL] [--size WxH] [--fps N] [--adapter A] [--extract]
@@ -758,6 +779,62 @@ fn run(argv: &[String]) -> Result<()> {
             }
         }
         "watch" => watch(&ctx, &a, &m)?,
+        "clips" if ["transcript", "transcribe", "search", "build", "story"].contains(&sub) => {
+            let Some(f) = a.pos.get(2) else { return fail(format!("clips {sub} needs the recording (a file or a link)")) };
+            put(&mut m, "action", sub);
+            put(&mut m, "file", f.clone());
+            if sub == "search" {
+                let Some(q) = rest(&a, 3) else { return fail("clips search <recording> <words to find>") };
+                put(&mut m, "query", q);
+            }
+            let r = ctx.clips_op(&Value::Object(m))?;
+            match sub {
+                "transcript" | "transcribe" if !json_out => print!("{}", st(&r, "transcript")),
+                "search" if !json_out => {
+                    for h in r["hits"].as_array().cloned().unwrap_or_default() {
+                        println!("{:>8.1}s - {:>8.1}s  {}", h["start"].as_f64().unwrap_or(0.0), h["end"].as_f64().unwrap_or(0.0), st(&h, "text"));
+                    }
+                }
+                _ if !json_out && r.get("clips").is_some() && r["clips"][0].get("out").is_some() => {
+                    println!("typeface: {}", st(&r, "typeface"));
+                    for c in r["clips"].as_array().cloned().unwrap_or_default() {
+                        println!(
+                            "{}\n  {} s, {} cuts, {} s of pauses removed, captions: {} ({} words), ending: {}",
+                            st(&c, "out"),
+                            st(&c, "duration"),
+                            st(&c, "pieces"),
+                            st(&c, "removed_pause_seconds"),
+                            st(&c, "captions"),
+                            st(&c, "words"),
+                            if st(&c, "end").is_empty() { "natural".into() } else { st(&c, "end") }
+                        );
+                    }
+                    for n in r["notes"].as_array().cloned().unwrap_or_default() {
+                        println!("note: {}", n.as_str().unwrap_or(""));
+                    }
+                }
+                _ => println!("{}", pretty(&r)),
+            }
+        }
+        "fonts" => {
+            put(&mut m, "action", if sub.is_empty() { "show" } else { sub });
+            if let Some(f) = rest(&a, 2) {
+                put(&mut m, "family", f);
+            }
+            let r = ctx.fonts_op(&Value::Object(m))?;
+            if sub == "list" && !json_out {
+                for f in r["fonts"].as_array().cloned().unwrap_or_default() {
+                    println!(
+                        "{:<20} {:<44} {}",
+                        st(&f, "family"),
+                        f["tags"].as_array().map(|t| t.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(" ")).unwrap_or_default(),
+                        st(&f, "note")
+                    );
+                }
+            } else {
+                println!("{}", pretty(&r));
+            }
+        }
         "clips" => {
             let Some(f) = a.pos.get(1) else { return fail("clips needs the recording: editemos clips <file> [--count 5] [--aspect 9:16]") };
             put(&mut m, "file", f.clone());
@@ -900,7 +977,8 @@ fn run(argv: &[String]) -> Result<()> {
                 let exe = extract::scrapling::install(&ctx.home, m.get("python").and_then(|v| v.as_str()))?;
                 println!("scrapling ready: {}", exe.display());
             }
-            _ => return fail("tools: install-scrapling [--python PATH]"),
+            "install-whisper" => println!("{}", pretty(&editemos::transcribe::install(&ctx.home)?)),
+            _ => return fail("tools: install-scrapling [--python PATH] | install-whisper"),
         },
         other => return fail(format!("unknown command '{other}'. Try: editemos help")),
     }

@@ -206,7 +206,7 @@ pub fn evidence(p: &Project) -> Value {
     ev
 }
 
-fn first_json(text: &str) -> Option<Value> {
+pub fn first_json(text: &str) -> Option<Value> {
     let start = text.find('{')?;
     let mut depth = 0i32;
     let mut in_str = false;
