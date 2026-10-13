@@ -135,8 +135,14 @@ pub fn install(home: &Home) -> Result<serde_json::Value> {
 /// starts a word; punctuation sticks to the word before it.
 pub fn words_from_tokens(tokens: &[(f64, f64, String)]) -> Vec<Word> {
     let mut out: Vec<Word> = Vec::new();
+    // sound descriptions such as "(upbeat music)" or "[laughter]" span several tokens
+    let mut aside = false;
     for (from, to, text) in tokens {
         if text.trim().is_empty() || text.trim_start().starts_with("[_") || text.trim_start().starts_with("<|") {
+            continue;
+        }
+        if aside || text.contains(['(', '[']) {
+            aside = !text.contains([')', ']']);
             continue;
         }
         let glue = !text.starts_with(' ') || text.trim().chars().all(|c| !c.is_alphanumeric());
@@ -228,6 +234,21 @@ pub fn words(home: &Home, media: &Path, language: &str) -> Result<Vec<Word>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sound_descriptions_are_not_speech() {
+        let t = |a: f64, b: f64, s: &str| (a, b, s.to_string());
+        let w = words_from_tokens(&[
+            t(0.0, 0.2, " (up"),
+            t(0.2, 0.4, "beat"),
+            t(0.4, 0.8, " music)"),
+            t(1.0, 1.3, " Nice"),
+            t(1.3, 1.4, "."),
+            t(1.5, 1.9, " [laughter]"),
+            t(2.0, 2.3, " Go"),
+        ]);
+        assert_eq!(w.iter().map(|x| x.text.as_str()).collect::<Vec<_>>(), vec!["Nice.", "Go"]);
+    }
 
     #[test]
     fn tokens_become_words() {

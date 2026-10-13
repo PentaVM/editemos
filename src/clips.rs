@@ -234,6 +234,34 @@ pub fn fetch(url: &str, dir: &Path, max_height: u32, section: Option<&str>) -> R
         // already downloaded on an earlier run
         before.iter().filter(|p| p.extension().map(|e| e == "mp4").unwrap_or(false)).max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok()).cloned()
     });
+    // a site that refuses the captions must not cost the recording: try once more without them
+    let video = match video {
+        Some(v) => Some(v),
+        None => {
+            let Some(mut retry) = ytdlp() else { return fail("yt-dlp disappeared") };
+            retry.args([
+                "--no-playlist",
+                "--no-progress",
+                "--restrict-filenames",
+                "-f",
+                &format!("bv*[height<={max_height}]+ba/b[height<={max_height}]/b"),
+                "--merge-output-format",
+                "mp4",
+            ]);
+            if let Some(ff) = find_ffmpeg().filter(|f| f.is_absolute()) {
+                retry.arg("--ffmpeg-location").arg(ff);
+            }
+            if let Some(s) = section {
+                retry.args(["--download-sections", &format!("*{s}")]);
+            }
+            let _ = retry.arg("-o").arg(dir.join("%(id)s.%(ext)s")).arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+            std::fs::read_dir(dir)?
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().map(|e| e == "mp4").unwrap_or(false))
+                .max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
+        }
+    };
     let Some(video) = video else {
         return fail(format!("yt-dlp could not fetch {url}: {}", crate::util::truncate_chars(String::from_utf8_lossy(&out.stderr).trim(), 300)));
     };

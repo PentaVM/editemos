@@ -51,6 +51,20 @@ You have the `editemos_*` MCP tools. If they are not connected, the same operati
   be a link (needs yt-dlp; use `section` for part of a long stream). Use `layout=fit` for gameplay
   and screen recordings, `burn=true` for captions in the project's type and colours. Pass a
   transcript when there is one. Show the picks; the user corrects the manifest, you re-export.
+- **Clips that are edited (the default when the user wants shorts worth watching):** you are the
+  editor. `editemos_clips action=transcript file=<recording>` gives the words with their times
+  (`transcribe=true` if the recording has no captions). Read it and plan each clip as a story:
+  a hook in the first two seconds (the best line, not the first one), several `segments` in the
+  order they should play so dead time is skipped and a payoff can have its setup from minutes
+  earlier, a `title` of at most six words, `end: "punchline"` only when the abrupt cut is itself
+  the joke, and `context: [{query, label}]` only when a viewer would be lost (the moment is found
+  by what was said and flashed with the label). Aim for the length the user asked for. Then
+  `action=build spec={...}`. Skip sponsor reads. Captions are transcribed from the clip's own
+  audio; never show site auto-captions.
+- **Typeface:** never ship a system fallback. `editemos_fonts` shows what the project uses and
+  why. If the user dislikes it, `action=reject` (ask: this project or always) and show the
+  replacement; if they like one, `action=set`. Taste that is the user's and not one client's
+  goes in `editemos_memory_add global=true`.
 - **Kdenlive:** `editemos_kdenlive action=status|inspect|diff|overlay|draft|learn`. The user's project
   file is never overwritten; `overlay` writes a versioned copy. After they save by hand,
   `action=learn` records what they changed: that is their real taste.

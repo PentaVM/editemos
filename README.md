@@ -251,6 +251,57 @@ $ editemos motion new lower-third "Ana Salazar"     -> reused: true (same file, 
   screen recordings need; `crop` fills the frame from the centre. Use it on footage you have the
   right to edit.
 
+## Story clips: edited, not just cut out
+
+The quick pass finds loud moments. A clip people finish is something else: a hook in the first
+two seconds, the boring parts skipped, context when it is needed, and an ending. That is an
+editor's judgement, so the tool splits the job. **A model (or you) decides; editemos builds.**
+
+```bash
+editemos clips transcript recording.mp4          # the words with their times, to plan from
+editemos clips search recording.mp4 leaderboard  # where something was said
+editemos clips story recording.mp4 --adapter claude --count 3 --seconds 60   # a model plans it
+editemos clips build recording.mp4 --spec-file plan.json                    # or build your own plan
+```
+
+The plan is a small JSON document, the same whoever writes it:
+
+```json
+{ "clips": [ {
+  "title": "He challenged the wrong guy",
+  "end": "punchline",
+  "segments": [
+    { "start": 40.9, "end": 47.4, "why": "hook" },
+    { "start": 20.5, "end": 35.3, "label": "How it started" },
+    { "start": 241.7, "end": 250.5, "why": "payoff" }
+  ],
+  "context": [ { "query": "new feature", "label": "Honor duel: 1v1 the toxic one", "before_segment": 1 } ]
+} ] }
+```
+
+- **Segments play in the order you list them**, so the payoff's setup can come from ten minutes
+  earlier and the hook can be the best line, not the first one.
+- **Context** is found by what was said: give the words, and the moment is located in the
+  transcript and flashed, desaturated, with your label on it.
+- **`"end": "punchline"`** stops dead on the last word and cuts to black: for when the cut is the joke.
+- **Pauses are removed** inside segments, and the framing shifts slightly across each jump cut.
+- **Captions come from the clip's own audio**, transcribed on your machine with
+  [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`editemos tools install-whisper`), one
+  word lit at a time. Site auto-captions are used to *find* moments, never to show them.
+
+### Typefaces, chosen and remembered
+
+A system fallback is not a design decision. `editemos fonts` picks from a catalogue of open
+display faces by what the brand is (a gaming channel does not get a bookish serif), downloads it
+once, and remembers:
+
+```bash
+editemos fonts                                   # what this project uses and why, with alternatives
+editemos fonts set "Russo One"                   # for this project
+editemos fonts reject "Bangers" --global --reason "too comic"   # never again, in any project
+editemos memory add "Captions two words per line" --global      # taste that is yours, not a client's
+```
+
 ## Benchmarks
 
 Measured with `editemos bench` (release build, Windows 11, a 6-core laptop). Run it yourself;

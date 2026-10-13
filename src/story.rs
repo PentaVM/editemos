@@ -555,7 +555,7 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
     inputs(&mut cmd);
     let r = cmd
         .args(["-filter_complex", &g, "-map", "[vo]", "-map", if punchline { "[ao]" } else { "[ac]" }])
-        .args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"])
+        .args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"])
         .arg(&abs_out)
         .stdin(Stdio::null())
         .output()?;
