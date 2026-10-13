@@ -68,6 +68,14 @@ You have the `editemos_*` MCP tools. If they are not connected, the same operati
   A highlight is build-up, moment and aftermath, so start before the rise and keep the reaction
   or replay; use `label` on segments to carry context the picture shows (score, clock, who).
   `action=highlights` does a first pass automatically.
+- **Check the cut before you show it.** Every build returns a review sheet per clip: one row per
+  segment, and the two frames on each side are what you LEFT OUT just before and just after. Look
+  at it. If those frames show the set-up (who had the ball, the score before, the question) or
+  the outcome (the ball going in, the replay, the reaction), you cut the story: move that edge
+  and build again. Read `checks` too: each line is an edge the sound disagrees with (a peak
+  right after your cut, a build-up you started in the middle of). For the scenes that matter
+  most, `action=look` at the seconds around them first and choose the edges from what you see,
+  not from round numbers. Two rounds at most, then show the user and say what you changed.
 - **Typeface:** never ship a system fallback. `editemos_fonts` shows what the project uses and
   why. If the user dislikes it, `action=reject` (ask: this project or always) and show the
   replacement; if they like one, `action=set`. Taste that is the user's and not one client's

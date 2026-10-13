@@ -44,6 +44,7 @@ const BOOL_FLAGS: &[&str] = &[
     "transcribe",
     "no-captions",
     "no-punch",
+    "no-snap",
     "heading",
 ];
 const NUM_KEYS: &[&str] = &[
@@ -816,6 +817,14 @@ fn run(argv: &[String]) -> Result<()> {
                             st(&c, "words"),
                             if st(&c, "end").is_empty() { "natural".into() } else { st(&c, "end") }
                         );
+                    }
+                    for c in r["clips"].as_array().cloned().unwrap_or_default() {
+                        for x in c["notes"].as_array().into_iter().flatten().chain(c["checks"].as_array().into_iter().flatten()) {
+                            println!("check ({}): {}", st(&c, "name"), x.as_str().unwrap_or(""));
+                        }
+                        if c.get("contact").is_some() {
+                            println!("review sheet: {}", st(&c, "contact"));
+                        }
                     }
                     for n in r["notes"].as_array().cloned().unwrap_or_default() {
                         println!("note: {}", n.as_str().unwrap_or(""));

@@ -1,6 +1,6 @@
 [package]
 name = "editemos"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.80"
 description = "Every video gets its own edit brand: persistent per-project memory, brand and asset extraction, open-source motion graphics and an MCP server for Claude, Codex and any agent."

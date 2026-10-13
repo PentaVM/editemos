@@ -781,6 +781,8 @@ impl Ctx {
                     _ => (1080, 1920),
                 };
                 let out_dir = s(a, "out").map(PathBuf::from).unwrap_or_else(|| p.dir.join("clips"));
+                let sound_events: Vec<clips::Event> =
+                    motion::render::find_ffmpeg().and_then(|ff| clips::analyse_audio(&ff, &file).ok()).map(|au| clips::events(&au, 60)).unwrap_or_default();
                 let mut built: Vec<Value> = Vec::new();
                 for (i, st) in stories.iter_mut().enumerate() {
                     notes.extend(story::resolve_context(st, &cues));
@@ -797,15 +799,27 @@ impl Ctx {
                         max_pause: n(a, "max_pause").unwrap_or(0.55),
                         breath: n(a, "breath").or(fonts::load_prefs(&self.home).cut_breath).unwrap_or(0.4).clamp(0.0, 1.5),
                         punch: !b(a, "no_punch"),
+                        transition: s(a, "transition").unwrap_or_else(|| "dip".into()),
+                        snap: !b(a, "no_snap"),
                         rough: cues.clone(),
                     };
                     let r = story::build(&self.home, st, &o)?;
+                    // show the planner what fell just outside each segment, and what the sound says about the edges
+                    let review = out_dir.join(format!("{name}.review.png"));
+                    let reviewed = story::review_sheet(&file, &r.cut, &review).is_ok();
+                    let checks = story::edge_checks(&r.cut, &sound_events);
                     let _ = assets::register_file(&p, Path::new(&r.out), "clip", vec!["story".into(), name.clone()]);
                     write_atomic(&out_dir.join(format!("{name}.story.json")), serde_json::to_string_pretty(&st)?.as_bytes())?;
                     let mut v = serde_json::to_value(&r)?;
                     v["name"] = json!(name);
                     v["title"] = json!(st.title);
                     v["end"] = json!(st.end);
+                    v["checks"] = json!(checks);
+                    if reviewed {
+                        v["contact"] = json!(path_str(&review));
+                        v["review_rows"] = json!("one row per segment, in order");
+                        v["review_columns"] = json!(story::REVIEW_COLUMNS);
+                    }
                     built.push(v);
                 }
                 memory::add(
@@ -825,7 +839,8 @@ impl Ctx {
                 if built.iter().any(|b| b["captions"] != "whisper") && !b(a, "no_captions") {
                     notes.push("captions did not come from whisper: run `editemos tools install-whisper` for accurate, word-timed captions".into());
                 }
-                Ok(json!({"clips": built, "typeface": font_note, "notes": notes}))
+                Ok(json!({"clips": built, "typeface": font_note, "notes": notes, "images": built.iter().filter_map(|b| b.get("contact").cloned()).collect::<Vec<_>>(),
+                    "before_you_call_it_done": "Look at each clip's review sheet (contact): one row per segment; the two frames on the left and the two on the right were LEFT OUT. If they show the set-up (who had the ball, the score before, the question being asked) or the outcome (the goal going in, the replay, the reaction), the segment is cutting the story: move its start or end and build again. Read checks: each line is an edge the sound disagrees with. Fix what is real, rebuild once or twice, then show the user."}))
             }
             other => fail(format!("unknown clips action '{other}'")),
         }
