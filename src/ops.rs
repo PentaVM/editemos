@@ -689,9 +689,62 @@ impl Ctx {
                 let hits = story::search(&cues, &q, n(a, "k").map(|v| v as usize).unwrap_or(8));
                 Ok(json!({"query": q, "hits": hits}))
             }
-            "build" | "story" => {
+            "events" => {
+                // what happened, judged by sound; then where the picture cuts after each peak
+                let Some(ffmpeg) = motion::render::find_ffmpeg() else { return fail("ffmpeg not found") };
+                let audio = clips::analyse_audio(&ffmpeg, &file)?;
+                let mut ev = clips::events(&audio, n(a, "count").map(|v| v as usize).unwrap_or(12));
+                for e in ev.iter_mut() {
+                    e.cuts_after = clips::scene_cuts(&ffmpeg, &file, e.peak, (e.peak + 20.0).min(audio.duration));
+                }
+                Ok(json!({"file": path_str(&file), "duration": audio.duration, "events": ev,
+                    "how_to_use": "Each event is a moment the sound says something happened (crowd, casters, a reaction). rise is where the build-up began, settle where it calmed, cuts_after where the picture cut (a replay usually starts at the first). Sound does not say WHAT happened: call action=look around an event to see it, then plan the clip so it includes the build-up (start some seconds before rise), the moment, and the reaction or replay."}))
+            }
+            "look" => {
+                let Some(ffmpeg) = motion::render::find_ffmpeg() else { return fail("ffmpeg not found") };
+                let from = n(a, "from").unwrap_or(0.0).max(0.0);
+                let to = n(a, "to").unwrap_or(from + 30.0);
+                if to <= from {
+                    return fail("look needs from < to (seconds)");
+                }
+                let (cols, rows) = (n(a, "cols").map(|v| v as u32).unwrap_or(4).clamp(1, 6), n(a, "rows").map(|v| v as u32).unwrap_or(3).clamp(1, 6));
+                let out = p.dir.join("looks").join(format!("{stem}-{:.0}-{:.0}.png", from, to));
+                let times = clips::storyboard(&ffmpeg, &file, from, to, cols, rows, &out)?;
+                Ok(
+                    json!({"contact": path_str(&out), "from": from, "to": to, "grid": format!("{cols}x{rows}"), "times": times, "note": "frames are in reading order (left to right, top to bottom); times[i] is the second each one was taken"}),
+                )
+            }
+            "build" | "story" | "highlights" => {
                 let mut notes: Vec<String> = Vec::new();
-                let mut stories: Vec<story::Story> = if action == "story" {
+                let mut stories: Vec<story::Story> = if action == "highlights" {
+                    // no words needed: build-up, moment and aftermath around each loud event
+                    let Some(ffmpeg) = motion::render::find_ffmpeg() else { return fail("ffmpeg not found") };
+                    let audio = clips::analyse_audio(&ffmpeg, &file)?;
+                    let mut ev = clips::events(&audio, 40);
+                    ev.sort_by(|x, y| y.over.partial_cmp(&x.over).unwrap_or(std::cmp::Ordering::Equal));
+                    ev.truncate(n(a, "count").map(|v| v as usize).unwrap_or(3));
+                    ev.sort_by(|x, y| x.peak.partial_cmp(&y.peak).unwrap_or(std::cmp::Ordering::Equal));
+                    if ev.is_empty() {
+                        return fail("the sound of this recording never rises above its normal level: nothing to call a highlight. Use action=look to see it and plan by hand");
+                    }
+                    let (lead, tail) = (n(a, "lead").unwrap_or(10.0), n(a, "tail").unwrap_or(9.0));
+                    notes.push(format!("{} event(s) found by sound; {lead:.0}s of build-up and up to {tail:.0}s of aftermath kept around each", ev.len()));
+                    ev.iter()
+                        .enumerate()
+                        .map(|(i, e)| story::Story {
+                            name: format!("{stem}-highlight-{:02}", i + 1),
+                            segments: vec![story::Segment {
+                                start: (e.rise.min(e.peak - 4.0) - lead).max(0.0),
+                                end: (e.settle.max(e.peak + 3.0)).min(e.peak + tail).min(audio.duration),
+                                why: format!("sound peaks {:.0} LU over normal at {:.0}s", e.over, e.peak),
+                                ..Default::default()
+                            }],
+                            end: "natural".into(),
+                            why: "chosen by sound alone".into(),
+                            ..Default::default()
+                        })
+                        .collect()
+                } else if action == "story" {
                     if cues.is_empty() {
                         return fail("planning needs a transcript: pass transcript=<file>, a link with captions, or transcribe=true");
                     }

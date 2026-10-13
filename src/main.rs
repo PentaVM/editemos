@@ -71,6 +71,10 @@ const NUM_KEYS: &[&str] = &[
     "seconds",
     "max_pause",
     "breath",
+    "lead",
+    "tail",
+    "cols",
+    "rows",
     "words",
 ];
 
@@ -91,6 +95,9 @@ START HERE
 STORY CLIPS (edited, not just cut out)
   clips transcript <recording> [--from S --to S]      the words with their times, to plan from
   clips search <recording> <words>                    where something was said
+  clips events <recording>                            what happened, judged by sound (no words needed)
+  clips look <recording> --from S --to S              a grid of frames with their times, to see it
+  clips highlights <recording> [--count 3] [--lead 10] [--tail 9]   build-up, moment, aftermath
   clips story <recording> [--adapter A] [--count 3] [--seconds 60] [--notes \"...\"]   a model plans, this builds
   clips build <recording> --spec-file plan.json       build a plan you or your agent wrote
         segments in any order, pauses removed, word-by-word captions from the clip's own audio,
@@ -780,7 +787,7 @@ fn run(argv: &[String]) -> Result<()> {
             }
         }
         "watch" => watch(&ctx, &a, &m)?,
-        "clips" if ["transcript", "transcribe", "search", "build", "story"].contains(&sub) => {
+        "clips" if ["transcript", "transcribe", "search", "build", "story", "events", "look", "highlights"].contains(&sub) => {
             let Some(f) = a.pos.get(2) else { return fail(format!("clips {sub} needs the recording (a file or a link)")) };
             put(&mut m, "action", sub);
             put(&mut m, "file", f.clone());
