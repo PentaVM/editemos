@@ -412,13 +412,13 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
     // let every line land: hold a little after its last word, unless that would run
     // into footage another segment already uses
     let mut held: Vec<Segment> = story.segments.clone();
-    for i in 0..held.len() {
-        if held[i].context || o.breath <= 0.0 {
+    for (i, h) in held.iter_mut().enumerate() {
+        if h.context || o.breath <= 0.0 {
             continue;
         }
-        let end = held[i].end;
+        let end = h.end;
         let limit = story.segments.iter().enumerate().filter(|(j, s)| *j != i && s.start >= end - 0.01).map(|(_, s)| s.start).fold(f64::MAX, f64::min);
-        held[i].end = (end + o.breath).min(limit.max(end));
+        h.end = (end + o.breath).min(limit.max(end));
     }
     let mut pieces = tighten(&held, &silences, o.max_pause);
     if pieces.is_empty() {
