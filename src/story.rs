@@ -35,6 +35,9 @@ pub struct Segment {
     /// Why it is in the cut (kept in the manifest; never rendered).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub why: String,
+    /// Which planned segment a piece came from (set while building).
+    #[serde(skip)]
+    pub origin: usize,
 }
 
 /// A request to find a moment by what was said and flash it for context.
@@ -104,6 +107,10 @@ pub struct BuildOptions {
     pub breath: f64,
     /// Alternate a slight push-in across jump cuts.
     pub punch: bool,
+    /// Between scenes that are not continuous: "dip" (through black), "flash" (through white) or "cut".
+    pub transition: String,
+    /// Move a segment's edges onto a change of shot when one lies within half a second.
+    pub snap: bool,
     /// Site captions for the recording, used only if whisper is not installed.
     pub rough: Vec<Cue>,
 }
@@ -120,6 +127,10 @@ pub struct Built {
     pub transcript: String,
     pub font: String,
     pub seconds: f64,
+    /// What the builder changed on its own (edges moved onto a change of shot, and so on).
+    pub notes: Vec<String>,
+    /// The segments as they were finally cut, in source time.
+    pub cut: Vec<(f64, f64)>,
 }
 
 /* ------------------------------ planning helpers ------------------------------ */
@@ -428,8 +439,31 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
     // let every line land: hold a little after its last word, unless that would run
     // into footage another segment already uses
     let mut held: Vec<Segment> = story.segments.clone();
+    let mut notes: Vec<String> = Vec::new();
+    let mut end_snapped = vec![false; held.len()];
     for (i, h) in held.iter_mut().enumerate() {
-        if h.context || o.breath <= 0.0 {
+        h.origin = i;
+        if !o.snap {
+            continue;
+        }
+        // an edge that misses a change of shot by a few frames shows a flash of the wrong shot
+        let near = |t: f64| {
+            crate::clips::scene_cuts(&ffmpeg, &o.source, (t - 0.6).max(0.0), t + 0.6)
+                .into_iter()
+                .min_by(|a, b| (a - t).abs().partial_cmp(&(b - t).abs()).unwrap_or(std::cmp::Ordering::Equal))
+        };
+        if let Some(c) = near(h.start).filter(|c| (c - h.start).abs() > 0.03 && c + 0.3 < h.end) {
+            notes.push(format!("segment {} now starts on the change of shot at {:.2}s (was {:.2}s)", i + 1, c, h.start));
+            h.start = c + 0.04;
+        }
+        if let Some(c) = near(h.end).filter(|c| (c - h.end).abs() > 0.03 && *c - 0.3 > h.start) {
+            notes.push(format!("segment {} now ends on the change of shot at {:.2}s (was {:.2}s)", i + 1, c, h.end));
+            h.end = c - 0.04;
+            end_snapped[i] = true;
+        }
+    }
+    for (i, h) in held.iter_mut().enumerate() {
+        if h.context || o.breath <= 0.0 || end_snapped[i] {
             continue;
         }
         let end = h.end;
@@ -549,14 +583,26 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
     for (i, p) in pieces.iter().enumerate() {
         let z = p.zoom.unwrap_or(1.0).clamp(1.0, 1.6);
         let aside = if p.context { ",hue=s=0.15,eq=contrast=1.12:brightness=-0.04" } else { "" };
+        // a jump between scenes gets a short dip; cuts inside a scene stay hard
+        let colour = if o.transition == "flash" { "white" } else { "black" };
+        let d = p.end - p.start;
+        let mut dip = String::new();
+        if o.transition != "cut" && d > 0.5 {
+            if i > 0 && pieces[i - 1].origin != p.origin {
+                dip.push_str(&format!(",fade=t=in:st=0:d=0.12:color={colour}"));
+            }
+            if i + 1 < n && pieces[i + 1].origin != p.origin {
+                dip.push_str(&format!(",fade=t=out:st={:.3}:d=0.12:color={colour}", d - 0.12));
+            }
+        }
         if o.layout == "fit" {
             g.push_str(&format!(
-                "[{i}:v]fps=30,setpts=PTS-STARTPTS,split[x{i}][y{i}];[x{i}]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=24:4,eq=brightness=-0.14[bg{i}];[y{i}]scale={fw}:-2{aside}[fg{i}];[bg{i}][fg{i}]overlay=(W-w)/2:(H-h)/2,setsar=1[v{i}];",
+                "[{i}:v]fps=30,setpts=PTS-STARTPTS,split[x{i}][y{i}];[x{i}]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=24:4,eq=brightness=-0.14[bg{i}];[y{i}]scale={fw}:-2{aside}[fg{i}];[bg{i}][fg{i}]overlay=(W-w)/2:(H-h)/2,setsar=1{dip}[v{i}];",
                 fw = even(w as f64 * z)
             ));
         } else {
             g.push_str(&format!(
-                "[{i}:v]fps=30,setpts=PTS-STARTPTS,scale={sw}:{sh}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1{aside}[v{i}];",
+                "[{i}:v]fps=30,setpts=PTS-STARTPTS,scale={sw}:{sh}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1{aside}{dip}[v{i}];",
                 sw = even(w as f64 * z),
                 sh = even(h as f64 * z)
             ));
@@ -601,8 +647,101 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
         words: words.len(),
         transcript: words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" "),
         font: o.style.font.clone(),
+        notes,
+        cut: held.iter().map(|s| ((s.start * 100.0).round() / 100.0, (s.end * 100.0).round() / 100.0)).collect(),
         seconds: (t_start.elapsed().as_secs_f64() * 10.0).round() / 10.0,
     })
+}
+
+/* ------------------------------ checking the cut ------------------------------ */
+
+pub const REVIEW_COLUMNS: [&str; 6] =
+    ["4 s before it starts (left out)", "1.5 s before (left out)", "first frame kept", "last frame kept", "1.5 s after (left out)", "4 s after (left out)"];
+
+/// One row per segment: what was left out just before it, where it starts, where
+/// it ends, and what was left out just after. Whoever planned the cut looks at
+/// this to see whether the set-up or the outcome fell outside the segment.
+pub fn review_sheet(source: &Path, cut: &[(f64, f64)], out: &Path) -> Result<()> {
+    let Some(ffmpeg) = find_ffmpeg() else { return fail("ffmpeg not found") };
+    let work = std::env::temp_dir().join(format!("editemos-review-{}", crate::util::short_id()));
+    std::fs::create_dir_all(&work)?;
+    let mut jobs: Vec<(usize, f64)> = Vec::new();
+    for (start, end) in cut {
+        for t in [start - 4.0, start - 1.5, start + 0.05, end - 0.1, end + 1.5, end + 4.0] {
+            jobs.push((jobs.len(), t.max(0.0)));
+        }
+    }
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|s| {
+        for _ in 0..4 {
+            s.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some((n, t)) = jobs.get(i) else { break };
+                // a frame past the end of the file simply stays black
+                let _ = Command::new(&ffmpeg)
+                    .args(["-hide_banner", "-loglevel", "error", "-y", "-ss", &format!("{t:.2}"), "-i"])
+                    .arg(source)
+                    .args(["-frames:v", "1", "-vf", "scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2"])
+                    .arg(work.join(format!("r_{:03}.png", n + 1)))
+                    .stdin(Stdio::null())
+                    .output();
+            });
+        }
+    });
+    // any frame that could not be read becomes a black tile, so rows stay aligned
+    for (n, _) in &jobs {
+        let f = work.join(format!("r_{:03}.png", n + 1));
+        if !f.exists() {
+            let _ = Command::new(&ffmpeg)
+                .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=320x180", "-frames:v", "1"])
+                .arg(&f)
+                .stdin(Stdio::null())
+                .output();
+        }
+    }
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let r = Command::new(&ffmpeg)
+        .args(["-hide_banner", "-loglevel", "error", "-y", "-framerate", "1", "-i"])
+        .arg(work.join("r_%03d.png"))
+        .args(["-vf", &format!("tile=6x{}:padding=4:margin=4", cut.len().max(1)), "-frames:v", "1"])
+        .arg(out)
+        .stdin(Stdio::null())
+        .output()?;
+    let _ = std::fs::remove_dir_all(&work);
+    if !r.status.success() || !out.exists() {
+        return fail(format!("could not make the review sheet: {}", crate::util::truncate_chars(String::from_utf8_lossy(&r.stderr).trim(), 200)));
+    }
+    Ok(())
+}
+
+/// What the sound says about each edge of the cut: a peak just outside a segment
+/// usually means the outcome or the reaction was left out.
+pub fn edge_checks(cut: &[(f64, f64)], events: &[crate::clips::Event]) -> Vec<String> {
+    let mut out = Vec::new();
+    for (i, (start, end)) in cut.iter().enumerate() {
+        for e in events {
+            // the same moment may be kept by another segment: then nothing is missing
+            let kept_elsewhere = |t: f64| cut.iter().enumerate().any(|(j, (a, b))| j != i && t >= *a && t <= *b);
+            if e.peak > *end && e.peak - end <= 6.0 && !kept_elsewhere(e.peak) {
+                out.push(format!(
+                    "segment {} ends at {:.1}s but the sound peaks at {:.1}s, {:.1}s later: the outcome or the reaction may be cut off",
+                    i + 1,
+                    end,
+                    e.peak,
+                    e.peak - end
+                ));
+            }
+            if e.peak >= *start && e.peak <= *end && e.rise < *start - 1.0 && !kept_elsewhere(e.rise) {
+                out.push(format!("segment {} starts at {:.1}s, inside a build-up that began at {:.1}s: the set-up may be missing", i + 1, start, e.rise));
+            }
+            if e.peak >= *start && e.peak <= *end && end - e.peak < 1.2 {
+                out.push(format!("segment {} ends {:.1}s after its loudest moment ({:.1}s): there is no time for it to land", i + 1, end - e.peak, e.peak));
+            }
+        }
+    }
+    out
 }
 
 /* ------------------------------ asking a model to plan ------------------------------ */
@@ -685,6 +824,20 @@ mod tests {
         };
         assert!(resolve_context(&mut own, &cues)[0].contains("skipped"));
         assert_eq!(own.segments.len(), 1);
+    }
+
+    #[test]
+    fn the_sound_warns_when_an_edge_cuts_the_story() {
+        let ev = |peak: f64, rise: f64| crate::clips::Event { peak, rise, settle: peak + 4.0, over: 5.0, cuts_after: Vec::new() };
+        // ends two seconds before the roar
+        let w = edge_checks(&[(100.0, 110.0)], &[ev(112.0, 105.0)]);
+        assert!(w.len() == 1 && w[0].contains("outcome"), "{w:?}");
+        // starts in the middle of the build-up, and ends right on the peak
+        let w = edge_checks(&[(108.0, 112.5)], &[ev(112.0, 100.0)]);
+        assert!(w.iter().any(|x| x.contains("set-up")) && w.iter().any(|x| x.contains("no time")), "{w:?}");
+        // a well-framed segment, and a peak another segment already keeps, raise nothing
+        assert!(edge_checks(&[(96.0, 118.0)], &[ev(112.0, 100.0)]).is_empty());
+        assert!(edge_checks(&[(100.0, 110.0), (111.0, 116.0)], &[ev(112.0, 111.5)]).is_empty());
     }
 
     #[test]
