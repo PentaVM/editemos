@@ -424,7 +424,7 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
     if pieces.is_empty() {
         return fail("nothing left after removing pauses");
     }
-    let before: f64 = story.segments.iter().map(|s| s.end - s.start).sum();
+    let before: f64 = held.iter().map(|s| s.end - s.start).sum();
     let total: f64 = pieces.iter().map(|s| s.end - s.start).sum();
     if o.punch {
         // jump cuts read as intentional when the framing changes a little across them
