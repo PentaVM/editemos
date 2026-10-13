@@ -92,7 +92,7 @@ pub struct Manifest {
     pub edl: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Cue {
     pub start: f64,
     pub end: f64,

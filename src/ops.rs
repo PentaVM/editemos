@@ -5,7 +5,7 @@ use crate::error::{fail, Result};
 use crate::model::Memory;
 use crate::store::{Home, Project};
 use crate::util::{path_str, slugify, truncate_chars, unix_secs, write_atomic};
-use crate::{adapters, assets, brand, clips, context, extract, kdenlive, memory, motion, session, skills, studio};
+use crate::{adapters, assets, brand, clips, context, extract, fonts, kdenlive, memory, motion, session, skills, story, studio, transcribe};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
@@ -197,7 +197,8 @@ impl Ctx {
     /* ---------------- memory ---------------- */
 
     pub fn memory_add(&self, a: &Value) -> Result<Value> {
-        let p = self.project(a)?;
+        // global=true: a preference of the person, for every project they have
+        let p = if b(a, "global") { self.user_memory() } else { self.project(a)? };
         let Some(text) = s(a, "text") else { return fail("memory needs text") };
         let m = memory::add(
             &p,
@@ -209,7 +210,13 @@ impl Ctx {
             b(a, "pinned"),
             s(a, "supersedes"),
         )?;
-        self.refresh(&p);
+        if b(a, "global") {
+            if let Ok(active) = self.home.active() {
+                self.refresh(&active);
+            }
+        } else {
+            self.refresh(&p);
+        }
         Ok(serde_json::to_value(&m)?)
     }
 
@@ -475,8 +482,303 @@ impl Ctx {
 
     /* ---------------- clips ---------------- */
 
+    /// The recording to work on (a file, or a link fetched into the project) and the
+    /// best transcript there is for *finding* things in it.
+    fn source_and_cues(&self, p: &Project, a: &Value) -> Result<(PathBuf, Vec<clips::Cue>)> {
+        let Some(input) = s(a, "file").or_else(|| s(a, "input")) else { return fail("give the recording: file=<path or link>") };
+        let mut srt: Option<PathBuf> = s(a, "transcript").map(PathBuf::from);
+        let file = if clips::is_url(&input) {
+            let (video, found) = clips::fetch(&input, &p.dir.join("sources"), n(a, "source_height").map(|v| v as u32).unwrap_or(1080), s(a, "section").as_deref())?;
+            srt = srt.or(found);
+            video
+        } else {
+            PathBuf::from(&input)
+        };
+        let file = std::fs::canonicalize(&file).map_err(|_| crate::error::Error(format!("{} not found", file.display())))?;
+        let stem = file.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+        let store = p.dir.join("transcripts").join(format!("{stem}.json"));
+        let cues: Vec<clips::Cue> = match &srt {
+            Some(f) => clips::dedupe_rolling(clips::parse_transcript(&std::fs::read_to_string(f)?)),
+            None => std::fs::read_to_string(&store).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default(),
+        };
+        if !cues.is_empty() && srt.is_some() {
+            write_atomic(&store, serde_json::to_string(&cues)?.as_bytes())?;
+        }
+        Ok((file, cues))
+    }
+
+    /// Type and colours for on-screen text: the brand's colours and a typeface that
+    /// was chosen, installed and remembered (never a system fallback by accident).
+    fn text_style(&self, p: &Project) -> (story::Style, String) {
+        let br = p.load_brand();
+        let prefs = fonts::load_prefs(&self.home);
+        let rejected_here: Vec<String> = br.fonts.iter().filter(|f| f.role == "rejected").map(|f| f.family.clone()).collect();
+        let choice = fonts::pick(&self.home, &br, &rejected_here);
+        let col = |hex: &str, d: crate::color::Rgb| crate::color::parse_color(hex).unwrap_or(d);
+        let mut st = story::Style {
+            fg: col(&br.edit.colors.fg, crate::color::Rgb(255, 255, 255)),
+            bg: col(&br.edit.colors.bg, crate::color::Rgb(0, 0, 0)),
+            accent: col(&br.edit.colors.accent, crate::color::Rgb(255, 230, 0)),
+            caps: prefs.caption_caps.unwrap_or(true),
+            words_per_line: prefs.caption_words.unwrap_or(3).clamp(1, 6),
+            ..Default::default()
+        };
+        // captions must read on any footage: near-white type, near-black outline
+        if st.fg.luminance() < 0.6 {
+            st.fg = crate::color::Rgb(255, 255, 255);
+        }
+        if st.bg.luminance() > 0.12 {
+            st.bg = crate::color::Rgb(8, 8, 10);
+        }
+        match fonts::install(&self.home, choice.face.family) {
+            Ok(_) => {
+                st.font = choice.face.ass_name.to_string();
+                st.fonts_dir = Some(fonts::dir(&self.home));
+                (st, format!("{} - {}", choice.face.family, choice.why))
+            }
+            Err(e) => (st, format!("{} could not be downloaded ({e}); using a system font", choice.face.family)),
+        }
+    }
+
+    /// Typefaces: what exists, what fits, what was chosen, what is never to be used again.
+    pub fn fonts_op(&self, a: &Value) -> Result<Value> {
+        let action = s(a, "action").unwrap_or_else(|| "show".into());
+        let global = b(a, "global");
+        match action.as_str() {
+            "list" => Ok(json!({"fonts": fonts::CATALOG.iter().map(|f| json!({"family": f.family, "tags": f.tags, "note": f.note})).collect::<Vec<_>>()})),
+            "set" | "reject" => {
+                let Some(family) = s(a, "family") else { return fail("give the family, e.g. family=\"Anton\" (see action=list)") };
+                let Some(face) = fonts::find(&family) else { return fail(format!("'{family}' is not in the catalogue; action=list shows what is")) };
+                let why = s(a, "reason").unwrap_or_default();
+                let mut prefs = fonts::load_prefs(&self.home);
+                if action == "set" {
+                    fonts::install(&self.home, face.family)?;
+                }
+                if global {
+                    if action == "set" {
+                        prefs.caption_font = Some(face.family.to_string());
+                        prefs.rejected_fonts.retain(|r| !r.eq_ignore_ascii_case(face.family));
+                    } else {
+                        if !prefs.rejected_fonts.iter().any(|r| r.eq_ignore_ascii_case(face.family)) {
+                            prefs.rejected_fonts.push(face.family.to_string());
+                        }
+                        if prefs.caption_font.as_deref().map(|c| c.eq_ignore_ascii_case(face.family)).unwrap_or(false) {
+                            prefs.caption_font = None;
+                        }
+                    }
+                    fonts::save_prefs(&self.home, &prefs)?;
+                    memory::add(
+                        &self.user_memory(),
+                        &format!(
+                            "Typeface {} {} for all projects{}",
+                            face.family,
+                            if action == "set" { "preferred" } else { "rejected" },
+                            if why.is_empty() { String::new() } else { format!(": {why}") }
+                        ),
+                        if action == "set" { "preference" } else { "rejection" },
+                        vec!["font".into()],
+                        "high",
+                        "user",
+                        true,
+                        None,
+                    )?;
+                    return Ok(json!({"scope": "all projects", "action": action, "family": face.family, "prefs": prefs}));
+                }
+                let p = self.project(a)?;
+                let mut br = p.load_brand();
+                br.fonts.retain(|f| !(f.family.eq_ignore_ascii_case(face.family) && (f.role == "caption" || f.role == "rejected")));
+                if action == "set" {
+                    br.fonts.retain(|f| f.role != "caption");
+                    br.fonts.push(crate::model::FontToken { family: face.family.into(), role: "caption".into(), source: "chosen".into(), ..Default::default() });
+                    if b(a, "heading") || !br.fonts.iter().any(|f| f.role == "heading") {
+                        br.fonts.retain(|f| f.role != "heading");
+                        br.fonts.push(crate::model::FontToken { family: face.family.into(), role: "heading".into(), source: "chosen".into(), ..Default::default() });
+                    }
+                } else {
+                    br.fonts.retain(|f| !f.family.eq_ignore_ascii_case(face.family));
+                    br.fonts.push(crate::model::FontToken { family: face.family.into(), role: "rejected".into(), source: "user".into(), ..Default::default() });
+                }
+                if !br.edit.locked {
+                    br.edit = brand::derive_edit_brand(&br);
+                }
+                p.save_brand(&br)?;
+                memory::add(
+                    &p,
+                    &format!(
+                        "Typeface {} {}{}",
+                        face.family,
+                        if action == "set" { "chosen for on-screen text" } else { "rejected" },
+                        if why.is_empty() { String::new() } else { format!(": {why}") }
+                    ),
+                    if action == "set" { "decision" } else { "rejection" },
+                    vec!["font".into()],
+                    "high",
+                    "user",
+                    true,
+                    None,
+                )?;
+                self.refresh(&p);
+                let (_, now) = self.text_style(&p);
+                Ok(json!({"project": p.config.slug, "action": action, "family": face.family, "now_using": now}))
+            }
+            "prefs" => {
+                let mut prefs = fonts::load_prefs(&self.home);
+                if let Some(v) = a.get("caps").and_then(|x| x.as_bool()) {
+                    prefs.caption_caps = Some(v);
+                }
+                if let Some(v) = n(a, "words") {
+                    prefs.caption_words = Some((v as usize).clamp(1, 6));
+                }
+                fonts::save_prefs(&self.home, &prefs)?;
+                Ok(serde_json::to_value(prefs)?)
+            }
+            _ => {
+                // show: what this project would use right now, and why
+                let p = self.project(a)?;
+                let br = p.load_brand();
+                let rejected_here: Vec<String> = br.fonts.iter().filter(|f| f.role == "rejected").map(|f| f.family.clone()).collect();
+                let c = fonts::pick(&self.home, &br, &rejected_here);
+                let alternatives: Vec<&str> = {
+                    let v = fonts::vibes(&br);
+                    fonts::CATALOG.iter().filter(|f| f.family != c.face.family && f.tags.iter().any(|t| v.contains(t))).map(|f| f.family).take(6).collect()
+                };
+                Ok(
+                    json!({"project": p.config.slug, "family": c.face.family, "why": c.why, "note": c.face.note, "vibes": fonts::vibes(&br), "alternatives": alternatives, "prefs": fonts::load_prefs(&self.home), "rejected_here": rejected_here}),
+                )
+            }
+        }
+    }
+
+    /// Things the user wants in every project live here, not in any one project.
+    fn user_memory(&self) -> Project {
+        let dir = self.home.root.join("user");
+        let _ = std::fs::create_dir_all(&dir);
+        Project { dir, config: crate::model::ProjectConfig { name: "user".into(), slug: "user".into(), ..Default::default() } }
+    }
+
+    /// Story clips: transcript, search, a model's plan, and the build (see `story`).
+    fn story_op(&self, action: &str, a: &Value) -> Result<Value> {
+        let p = self.project(a)?;
+        let (file, mut cues) = self.source_and_cues(&p, a)?;
+        let stem = file.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+        if action == "transcribe" || (cues.is_empty() && b(a, "transcribe")) {
+            // no captions for this recording: listen to all of it (slow, local, once)
+            let words = transcribe::words(&self.home, &file, s(a, "language").as_deref().unwrap_or("auto"))?;
+            cues = story::caption_lines(&words, 9)
+                .into_iter()
+                .map(|l| clips::Cue { start: l[0].start, end: l[l.len() - 1].end, text: l.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ") })
+                .collect();
+            write_atomic(&p.dir.join("transcripts").join(format!("{stem}.json")), serde_json::to_string(&cues)?.as_bytes())?;
+        }
+        match action {
+            "transcript" | "transcribe" => {
+                if cues.is_empty() {
+                    return fail(
+                        "this recording has no transcript yet. Pass transcript=<.srt/.vtt>, a link whose site has captions, or transcribe=true to listen to it with whisper",
+                    );
+                }
+                let (from, to) = (n(a, "from").unwrap_or(0.0), n(a, "to").unwrap_or(f64::MAX));
+                Ok(json!({"file": path_str(&file), "lines": cues.len(), "transcript": story::transcript_lines(&cues, from, to, 90_000),
+                    "how_to_cut": "Plan clips as JSON and pass it to action=build as spec: {\"clips\":[{\"name\",\"title\",\"end\":\"natural|punchline\",\"segments\":[{\"start\",\"end\",\"why\"}],\"context\":[{\"query\",\"label\",\"before_segment\"}]}]}. Start on the hook, use several segments to skip dead time, aim for the length the user asked for."}))
+            }
+            "search" => {
+                let Some(q) = s(a, "query") else { return fail("search needs a query") };
+                let hits = story::search(&cues, &q, n(a, "k").map(|v| v as usize).unwrap_or(8));
+                Ok(json!({"query": q, "hits": hits}))
+            }
+            "build" | "story" => {
+                let mut notes: Vec<String> = Vec::new();
+                let mut stories: Vec<story::Story> = if action == "story" {
+                    if cues.is_empty() {
+                        return fail("planning needs a transcript: pass transcript=<file>, a link with captions, or transcribe=true");
+                    }
+                    let adapter = s(a, "adapter").or_else(|| p.config.adapter.clone()).unwrap_or_else(|| "claude".into());
+                    let ad = adapters::get(&self.home, &adapter)?;
+                    let lines = story::transcript_lines(&cues, n(a, "from").unwrap_or(0.0), n(a, "to").unwrap_or(f64::MAX), 60_000);
+                    let rejections: Vec<String> = memory::active(&p).into_iter().filter(|m| m.kind == "rejection" || m.kind == "preference").map(|m| m.text).take(8).collect();
+                    let extra = format!(
+                        "{} {}",
+                        s(a, "notes").unwrap_or_default(),
+                        if rejections.is_empty() { String::new() } else { format!("Known preferences: {}", rejections.join(" | ")) }
+                    );
+                    let answer =
+                        adapters::run_text(&ad, &story::plan_prompt(&lines, n(a, "count").map(|v| v as usize).unwrap_or(3), n(a, "seconds").unwrap_or(60.0), extra.trim()))?;
+                    notes.push(format!("planned by {adapter}"));
+                    story::parse_plan(&answer)?
+                } else {
+                    let spec = match (a.get("spec"), s(a, "spec_file")) {
+                        (Some(v), _) if v.is_object() || v.is_array() => v.clone(),
+                        (Some(Value::String(t)), _) => serde_json::from_str(t)?,
+                        (_, Some(f)) => serde_json::from_str(std::fs::read_to_string(&f)?.trim_start_matches('\u{feff}'))?,
+                        _ => return fail("build needs the plan: spec={\"clips\":[...]} or spec_file=<json>"),
+                    };
+                    story::parse_plan(&spec.to_string())?
+                };
+                if b(a, "plan_only") {
+                    return Ok(json!({"clips": stories, "notes": notes}));
+                }
+                let (style, font_note) = self.text_style(&p);
+                let (w, h) = match s(a, "aspect").as_deref().unwrap_or("9:16") {
+                    "1:1" => (1080, 1080),
+                    "4:5" => (1080, 1350),
+                    "16:9" => (1920, 1080),
+                    _ => (1080, 1920),
+                };
+                let out_dir = s(a, "out").map(PathBuf::from).unwrap_or_else(|| p.dir.join("clips"));
+                let mut built: Vec<Value> = Vec::new();
+                for (i, st) in stories.iter_mut().enumerate() {
+                    notes.extend(story::resolve_context(st, &cues));
+                    let name = if st.name.trim().is_empty() { format!("{stem}-story-{:02}", i + 1) } else { slugify(&st.name) };
+                    let o = story::BuildOptions {
+                        source: file.clone(),
+                        out: out_dir.join(format!("{name}.mp4")),
+                        width: w,
+                        height: h,
+                        layout: s(a, "layout").unwrap_or_else(|| "fit".into()),
+                        captions: !b(a, "no_captions"),
+                        language: s(a, "language").unwrap_or_else(|| "auto".into()),
+                        style: style.clone(),
+                        max_pause: n(a, "max_pause").unwrap_or(0.55),
+                        punch: !b(a, "no_punch"),
+                        rough: cues.clone(),
+                    };
+                    let r = story::build(&self.home, st, &o)?;
+                    let _ = assets::register_file(&p, Path::new(&r.out), "clip", vec!["story".into(), name.clone()]);
+                    write_atomic(&out_dir.join(format!("{name}.story.json")), serde_json::to_string_pretty(&st)?.as_bytes())?;
+                    let mut v = serde_json::to_value(&r)?;
+                    v["name"] = json!(name);
+                    v["title"] = json!(st.title);
+                    v["end"] = json!(st.end);
+                    built.push(v);
+                }
+                memory::add(
+                    &p,
+                    &format!(
+                        "Story clips built from {stem}: {}",
+                        built.iter().map(|b| format!("{} ({}s)", b["name"].as_str().unwrap_or(""), b["duration"])).collect::<Vec<_>>().join(", ")
+                    ),
+                    "run",
+                    vec!["clips".into(), "story".into()],
+                    "medium",
+                    "agent",
+                    false,
+                    None,
+                )?;
+                self.refresh(&p);
+                if built.iter().any(|b| b["captions"] != "whisper") && !b(a, "no_captions") {
+                    notes.push("captions did not come from whisper: run `editemos tools install-whisper` for accurate, word-timed captions".into());
+                }
+                Ok(json!({"clips": built, "typeface": font_note, "notes": notes}))
+            }
+            other => fail(format!("unknown clips action '{other}'")),
+        }
+    }
+
     /// A long recording in, the best moments out (see `clips`).
     pub fn clips_op(&self, a: &Value) -> Result<Value> {
+        if let Some(action) = s(a, "action").filter(|x| x != "auto") {
+            return self.story_op(&action, a);
+        }
         let p = self.project(a)?;
         let Some(input) = s(a, "file").or_else(|| s(a, "input")) else { return fail("clips needs the recording: file=<path>") };
         // a link instead of a file: fetch it (and its subtitles) into the project first

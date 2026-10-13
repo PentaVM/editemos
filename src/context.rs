@@ -48,6 +48,26 @@ pub fn build(home: &Home, p: &Project, opts: &PackOptions) -> String {
     head.push_str("5. Source media is read-only. Renders go to `motion/renders` or the job folder, with new file names.\n");
     sections.push((0, head));
 
+    // what this person wants in every project, whoever the client is
+    let prefs = crate::fonts::load_prefs(home);
+    let user = Project { dir: home.root.join("user"), config: Default::default() };
+    let user_mems = memory::active(&user);
+    if !user_mems.is_empty() || prefs.caption_font.is_some() || !prefs.rejected_fonts.is_empty() {
+        let mut u = String::from("## The user's standing preferences (all projects)\n\n");
+        if let Some(f) = &prefs.caption_font {
+            u.push_str(&format!("- Preferred typeface for on-screen text: {f}\n"));
+        }
+        if !prefs.rejected_fonts.is_empty() {
+            u.push_str(&format!("- Never use these typefaces: {}\n", prefs.rejected_fonts.join(", ")));
+        }
+        for m in user_mems.iter().rev().take(20) {
+            u.push_str(&bullet(m));
+            u.push('\n');
+        }
+        u.push('\n');
+        sections.push((1, u));
+    }
+
     // brand
     let mut b = String::from("## Brand\n\n");
     b.push_str(&format!("- Name: {}\n", brand.name));

@@ -44,6 +44,29 @@ pub fn get_many(jobs: &[(String, usize)], timeout_s: u64) -> Vec<Option<Fetched>
     v.into_iter().map(|(_, r)| r).collect()
 }
 
+/// Stream a large file to disk (models, tools) without holding it in memory.
+pub fn download(url: &str, dest: &std::path::Path, max_bytes: u64, timeout_s: u64) -> Result<u64> {
+    let agent = ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(15)).timeout(Duration::from_secs(timeout_s)).user_agent(USER_AGENT).redirects(8).build();
+    let resp = match agent.get(url).call() {
+        Ok(r) => r,
+        Err(ureq::Error::Status(code, _)) => return fail(format!("HTTP {code} for {url}")),
+        Err(e) => return fail(format!("request to {url} failed: {e}")),
+    };
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let part = dest.with_extension("part");
+    let mut file = std::fs::File::create(&part)?;
+    let n = std::io::copy(&mut resp.into_reader().take(max_bytes + 1), &mut file)?;
+    drop(file);
+    if n > max_bytes {
+        let _ = std::fs::remove_file(&part);
+        return fail(format!("{url}: larger than {max_bytes} bytes"));
+    }
+    std::fs::rename(&part, dest)?;
+    Ok(n)
+}
+
 /// Like `get`, with an overall time limit in seconds.
 pub fn get_within(url: &str, max_bytes: usize, headers: &[(&str, &str)], timeout_s: u64) -> Result<Fetched> {
     let agent =
