@@ -312,6 +312,7 @@ pub fn tools() -> Vec<Value> {
                     ("transcribe", prop("boolean", "No captions available: listen to the whole recording with whisper first")),
                     ("language", prop("string", "Spoken language code, e.g. en, es (default auto)")),
                     ("max_pause", prop("number", "Remove pauses longer than this many seconds (default 0.55; 0 keeps them)")),
+                    ("breath", prop("number", "Seconds held after the last word of each segment before the cut (default 0.4)")),
                     ("no_captions", prop("boolean", "Build without captions")),
                     ("no_punch", prop("boolean", "Do not alternate a slight push-in across jump cuts")),
                     ("file", prop("string", "The recording: a file, or a link (fetched with yt-dlp if installed; only for footage the user may edit)")),

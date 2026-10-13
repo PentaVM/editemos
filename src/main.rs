@@ -70,6 +70,7 @@ const NUM_KEYS: &[&str] = &[
     "to",
     "seconds",
     "max_pause",
+    "breath",
     "words",
 ];
 
