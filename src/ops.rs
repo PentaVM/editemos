@@ -626,6 +626,9 @@ impl Ctx {
                 if let Some(v) = a.get("caps").and_then(|x| x.as_bool()) {
                     prefs.caption_caps = Some(v);
                 }
+                if let Some(v) = n(a, "breath") {
+                    prefs.cut_breath = Some(v.clamp(0.0, 1.5));
+                }
                 if let Some(v) = n(a, "words") {
                     prefs.caption_words = Some((v as usize).clamp(1, 6));
                 }
@@ -739,6 +742,7 @@ impl Ctx {
                         language: s(a, "language").unwrap_or_else(|| "auto".into()),
                         style: style.clone(),
                         max_pause: n(a, "max_pause").unwrap_or(0.55),
+                        breath: n(a, "breath").or(fonts::load_prefs(&self.home).cut_breath).unwrap_or(0.4).clamp(0.0, 1.5),
                         punch: !b(a, "no_punch"),
                         rough: cues.clone(),
                     };

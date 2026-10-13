@@ -99,6 +99,9 @@ pub struct BuildOptions {
     pub style: Style,
     /// Cut pauses longer than this many seconds out of every segment (0 = leave them).
     pub max_pause: f64,
+    /// Seconds kept after the last word of every segment, so a cut lets the line land
+    /// instead of clipping its tail (0.3 to 0.5 reads as deliberate; 0 is a hard cut).
+    pub breath: f64,
     /// Alternate a slight push-in across jump cuts.
     pub punch: bool,
     /// Site captions for the recording, used only if whisper is not installed.
@@ -406,7 +409,18 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
     }
     let (lo, hi) = story.segments.iter().filter(|s| !s.context).fold((f64::MAX, 0.0f64), |(a, b), s| (a.min(s.start), b.max(s.end)));
     let silences = if o.max_pause > 0.0 && hi > lo { silences_between(&ffmpeg, &o.source, lo, hi) } else { Vec::new() };
-    let mut pieces = tighten(&story.segments, &silences, o.max_pause);
+    // let every line land: hold a little after its last word, unless that would run
+    // into footage another segment already uses
+    let mut held: Vec<Segment> = story.segments.clone();
+    for i in 0..held.len() {
+        if held[i].context || o.breath <= 0.0 {
+            continue;
+        }
+        let end = held[i].end;
+        let limit = story.segments.iter().enumerate().filter(|(j, s)| *j != i && s.start >= end - 0.01).map(|(_, s)| s.start).fold(f64::MAX, f64::min);
+        held[i].end = (end + o.breath).min(limit.max(end));
+    }
+    let mut pieces = tighten(&held, &silences, o.max_pause);
     if pieces.is_empty() {
         return fail("nothing left after removing pauses");
     }

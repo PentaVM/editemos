@@ -145,7 +145,9 @@ pub fn words_from_tokens(tokens: &[(f64, f64, String)]) -> Vec<Word> {
             aside = !text.contains([')', ']']);
             continue;
         }
-        let glue = !text.starts_with(' ') || text.trim().chars().all(|c| !c.is_alphanumeric());
+        // "$", "#", an opening quote: these begin the next word ("$100"), they do not end the last one
+        let opener = text.starts_with(' ') && text.trim().chars().all(|c| "$€£¥#@\"“‘".contains(c));
+        let glue = !opener && (!text.starts_with(' ') || text.trim().chars().all(|c| !c.is_alphanumeric()));
         match out.last_mut() {
             Some(w) if glue => {
                 w.text.push_str(text.trim());
@@ -234,6 +236,13 @@ pub fn words(home: &Home, media: &Path, language: &str) -> Result<Vec<Word>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_currency_sign_belongs_to_its_number() {
+        let t = |a: f64, b: f64, s: &str| (a, b, s.to_string());
+        let w = words_from_tokens(&[t(0.0, 0.2, " offer"), t(0.2, 0.3, " him"), t(0.3, 0.4, " a"), t(0.4, 0.45, " $"), t(0.45, 0.8, "100"), t(0.8, 0.85, ","), t(0.9, 1.0, " ok")]);
+        assert_eq!(w.iter().map(|x| x.text.as_str()).collect::<Vec<_>>(), vec!["offer", "him", "a", "$100,", "ok"]);
+    }
 
     #[test]
     fn sound_descriptions_are_not_speech() {

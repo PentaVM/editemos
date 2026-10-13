@@ -121,6 +121,9 @@ pub struct Prefs {
     /// Words per caption line.
     #[serde(default)]
     pub caption_words: Option<usize>,
+    /// Seconds a cut waits after the last word of a segment.
+    #[serde(default)]
+    pub cut_breath: Option<f64>,
 }
 
 pub fn prefs_path(home: &Home) -> PathBuf {
