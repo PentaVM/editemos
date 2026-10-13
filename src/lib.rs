@@ -7,6 +7,7 @@ pub mod adapters;
 pub mod assets;
 pub mod bench;
 pub mod brand;
+pub mod brandai;
 pub mod cdp;
 pub mod clips;
 pub mod color;

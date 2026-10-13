@@ -39,11 +39,11 @@ editemos fixes those three things:
 
 ## What is in the box
 
-- **Brand identity from a website.** Palette with roles, typefaces, logo, voice and images,
-  read from a URL and downloaded with provenance. Three interchangeable backends: plain HTTP,
-  the machine's own browser for JavaScript sites and true computed styles, and
-  [Scrapling](https://github.com/D4Vinci/Scrapling) for sites that refuse plain clients.
-  Then generate on-brand images with whichever model you plug in.
+- **Brand identity, from wherever it lives.** A website, a YouTube / Instagram / TikTok / Twitch
+  profile, a logo, or simply what you say in the chat. Palette with roles, typefaces, logo and
+  voice, each kept with where it came from. On a social profile the platform's own colours are
+  left out and only what the creator uploaded counts. Then generate on-brand images with
+  whichever model you plug in.
 - **An edit brand per project.** A deterministic set of motion tokens (tempo, four easing
   curves, a duration palette, stagger, hold, transitions, type) that every graphic reads.
 - **Long memory, local.** Append-only JSONL with BM25 retrieval. A context pack is regenerated
@@ -105,6 +105,32 @@ editemos start "Estudio Brasa" --adapter claude --effort high
 ```
 
 <p align="center"><img src="docs/img/brand-sheet.png" alt="a brand sheet" width="820"></p>
+
+## Where the brand comes from
+
+You do not need a website, and you do not need to scrape anything.
+
+| You have | Do this | What happens |
+| --- | --- | --- |
+| nothing but an idea | just say it in the chat, or `editemos brand describe "dark, neon green #19e3a1, font Russo One"` | colours and typefaces are read out of the sentence |
+| exact values | `editemos brand set --primary "#19e3a1" --heading-font "Russo One"` | stated, done |
+| a logo or a banner | attach it in the chat, or `editemos brand from-images logo.png banner.png` | palette from the pictures |
+| a channel or profile | `editemos extract https://www.youtube.com/@yourchannel` | avatar, banner, thumbnails, name and description; **the platform's red, purple or gradient is not your brand and is left out** |
+| a website | `editemos extract https://yoursite.com` | plain HTTP, then the browser, then [Scrapling](https://github.com/D4Vinci/Scrapling) if the site refuses |
+
+A profile is the hard case: the page is painted in the platform's colours, thumbnails are full of
+game footage, and the creator's identity may be three pixels of an avatar. So the extractor reads
+only what the creator uploaded, lets thumbnails support a colour but never choose it, and keeps a
+black-and-white identity black and white instead of inventing a hue. Then a model gets the last
+word, because this is a judgement:
+
+```bash
+editemos brand evidence                  # every candidate colour, where it came from, the pictures
+editemos brand refine --adapter claude   # a model looks and separates creator from platform
+```
+
+Inside Claude or any MCP client the agent does this itself: `editemos_brand action=evidence`
+returns the pictures, it looks at them, and corrects the brand with `action=set`.
 
 ## Use it from your agent
 
@@ -218,6 +244,12 @@ $ editemos motion new lower-third "Ana Salazar"     -> reused: true (same file, 
 - **Clips from a stream.** `editemos clips recording.mp4 --count 8 --transcript recording.srt`.
   You get the clips, per-clip subtitles, a JSON manifest with the reason for each pick, and an
   EDL. Disagree with a pick, edit the manifest, export again.
+- **Straight from a link.** `editemos clips <url> --section 600-1500 --layout fit --burn` fetches
+  the recording and its captions with [yt-dlp](https://github.com/yt-dlp/yt-dlp) (if installed),
+  de-duplicates rolling auto-captions, and burns them in the project's own typeface and colours.
+  `--layout fit` keeps the whole picture over a blurred copy of itself, which is what gameplay and
+  screen recordings need; `crop` fills the frame from the centre. Use it on footage you have the
+  right to edit.
 
 ## Benchmarks
 
@@ -265,7 +297,7 @@ are never edited in place. Details in [SECURITY.md](SECURITY.md).
 
 ## Status
 
-Version 0.1. The test suite (48 tests: unit, MCP over real pipes, extraction against a local
+Version 0.1. The test suite (54 tests: unit, MCP over real pipes, extraction against a local
 site, a render whose alpha is decoded and checked, clips whose output frame is measured, the
 studio's API and guards) runs on Windows, Linux and macOS in CI.
 
@@ -274,6 +306,10 @@ Known limits, stated plainly:
 - Developed and benchmarked on Windows. Linux and macOS build and pass the suite in CI, but
   window detection for Kdenlive there depends on `wmctrl` or AppleScript, and has seen far less use.
 - Clips mode ranks moments by sound (and words, with a transcript). It does not watch the picture.
+- Typefaces cannot be read from an avatar. After a profile extraction the typeface is a fallback
+  until you, or a model that can see, name one.
+- Instagram and TikTok often show nothing to an anonymous visitor. When that happens the tool
+  says so and asks for the brand by hand or from a picture; it does not log in.
 - Inserting a clip into a Kdenlive project (`overlay`) is verified by rendering the result with
   melt, and is still marked experimental; opening the copy in the GUI is the final check.
 - `editemos session` opens the window; it does not place it on a particular monitor.

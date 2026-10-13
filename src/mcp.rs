@@ -131,15 +131,35 @@ pub fn tools() -> Vec<Value> {
         tool(
             "editemos_brand",
             "Brand and edit brand",
-            "Read or adjust the project's brand. actions: show (default), derive (recompute the edit brand from the brand), lock / unlock (stop or allow re-extraction from overwriting the edit brand). The edit brand holds tempo, easing curves, durations, stagger, hold and transitions unique to this project.",
-            schema(vec![("action", prop("string", "show | derive | lock | unlock"))], &[]),
+            "Read or set the project's brand. A website is only one source: the user can simply tell you, or show you. actions: show (default); set (state it directly: primary, secondary, tertiary, background, text as colours, heading_font, body_font, name, tagline, voice, drop=[colours to remove], or text=\"free description\"); from-images (files=[logo, banner, frames]: palette from pictures); evidence (every candidate colour with where it came from, plus the pictures, so YOU can judge: on a social profile separate the creator's identity from the platform's interface colours, then call set); refine (let another model judge: adapter); sheet (draw the brand on one page); derive; lock / unlock. When the user describes their brand in chat or attaches a logo, use set. background is the dark plate behind on-screen graphics, text the light type on it.",
+            schema(
+                vec![
+                    ("action", prop("string", "show | set | from-images | evidence | refine | sheet | derive | lock | unlock")),
+                    ("primary", prop("string", "Main brand colour, e.g. #19e3a1")),
+                    ("secondary", prop("string", "Second brand colour")),
+                    ("tertiary", prop("string", "Third brand colour")),
+                    ("background", prop("string", "Dark plate behind graphics")),
+                    ("text", prop("string", "On set: light type colour (hex), or with no colour fields a free description to read the brand from")),
+                    ("heading_font", prop("string", "Headline typeface")),
+                    ("body_font", prop("string", "Body typeface")),
+                    ("name", prop("string", "Brand or creator name")),
+                    ("tagline", prop("string", "One line")),
+                    ("voice", json!({"type": "array", "items": {"type": "string"}, "description": "Voice descriptors"})),
+                    ("drop", json!({"type": "array", "items": {"type": "string"}, "description": "Colours to remove (platform or incidental)"})),
+                    ("description", prop("string", "Free description of the brand (set): hex colours and typefaces in it are picked up")),
+                    ("files", json!({"type": "array", "items": {"type": "string"}, "description": "Pictures (from-images)"})),
+                    ("adapter", prop("string", "Model that judges (refine)")),
+                    ("notes", prop("string", "What the user said about the brand (refine)")),
+                ],
+                &[],
+            ),
             false,
             false,
         ),
         tool(
             "editemos_extract",
             "Extract brand from a website",
-            "Business-DNA extraction: read a website and fill the project with palette (roles), fonts, logo, voice, tagline, images and social links, download the assets with provenance, and derive the project's edit brand. Backends: auto (native, then headless browser, then scrapling), native, browser, scrapling. Obeys robots.txt unless ignore_robots is set; only use it on sites you are allowed to read.",
+            "Business-DNA extraction: read a website and fill the project with palette (roles), fonts, logo, voice, tagline, images and social links, download the assets with provenance, and derive the project's edit brand. Backends: auto (native, then headless browser, then scrapling), native, browser, scrapling. A social profile URL (YouTube channel, Instagram, TikTok, Twitch, X, Kick) is read differently: only what the creator uploaded (avatar, banner, thumbnails, name, description) counts, and the platform's own colours and typeface are left out; afterwards call editemos_brand action=evidence, look at the pictures yourself and correct the brand with action=set. Obeys robots.txt unless ignore_robots is set; only use it on sites you are allowed to read. If a site cannot be read, ask the user to describe the brand or attach a logo and use editemos_brand.",
             schema(
                 vec![
                     ("url", prop("string", "Website URL (defaults to the project's site)")),
@@ -279,7 +299,10 @@ pub fn tools() -> Vec<Value> {
             "Clips mode: give it a stream or any long recording and get the best moments already cut and framed. One audio-only pass (hundreds of times faster than real time) scores loudness and liveliness, snaps every cut to a pause so nothing starts mid-word, and exports in parallel as 9:16, 1:1, 4:5 or 16:9. A transcript (.srt/.vtt) adds word scoring and per-clip subtitles. Writes a manifest and an EDL so a person can correct the picks. plan_only=true only chooses; copy=true is instant (stream copy, source framing).",
             schema(
                 vec![
-                    ("file", prop("string", "The recording")),
+                    ("file", prop("string", "The recording: a file, or a link (fetched with yt-dlp if installed; only for footage the user may edit)")),
+                    ("layout", prop("string", "crop (fill from the centre, default) | fit (whole picture over a blurred copy: gameplay, screen recordings)")),
+                    ("section", prop("string", "With a link: only this part, e.g. 600-1500 (seconds) or 00:10:00-00:25:00")),
+                    ("source_height", prop("integer", "With a link: maximum height to fetch (default 1080)")),
                     ("count", prop("integer", "How many clips (default 5)")),
                     ("min", prop("number", "Shortest clip in seconds (default 15)")),
                     ("max", prop("number", "Longest clip in seconds (default 60)")),
@@ -371,12 +394,19 @@ fn attach_images(v: &Value) -> Vec<Value> {
             paths.push(o.to_string());
         }
     }
+    // brand evidence: the pictures the judgement is about
+    if let Some(imgs) = v.get("images").and_then(|x| x.as_array()) {
+        paths.extend(imgs.iter().filter_map(|x| x.as_str().map(String::from)).take(4));
+    }
     let mut out = Vec::new();
     for p in paths {
         let path = Path::new(&p);
         if std::fs::metadata(path).map(|m| m.len() <= MAX_IMAGE).unwrap_or(false) {
             if let Ok(bytes) = std::fs::read(path) {
-                out.push(json!({"type": "image", "data": base64::engine::general_purpose::STANDARD.encode(bytes), "mimeType": "image/png"}));
+                let (_, mime) = crate::assets::sniff(&bytes, &p);
+                if mime.starts_with("image/") && mime != "image/svg+xml" {
+                    out.push(json!({"type": "image", "data": base64::engine::general_purpose::STANDARD.encode(bytes), "mimeType": mime}));
+                }
             }
         }
     }

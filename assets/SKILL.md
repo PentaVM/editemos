@@ -23,8 +23,19 @@ You have the `editemos_*` MCP tools. If they are not connected, the same operati
    Obey the edit-brand rules and the rejections. Never carry over another project's style.
 3. **Open the studio:** `editemos_studio` once. The user watches assets, renders, clips and memory
    appear live at a local address and can add decisions there.
-4. **No brand yet?** `editemos_extract url=<site>` reads palette, fonts, logo, voice and assets and
-   derives the edit brand. `editemos_brand action=sheet` draws the brand identity on one page.
+4. **No brand yet?** Take it from wherever the user has it; a website is only one option.
+   - They describe it, or give values: `editemos_brand action=set` (`primary`, `secondary`,
+     `background`, `text`, `heading_font`, `body_font`, `voice`, or `description="their words"`).
+   - They attach or point to a logo, banner or frame: `action=from-images files=[...]`.
+   - A website: `editemos_extract url=<site>`.
+   - A YouTube, Instagram, TikTok or Twitch profile: `editemos_extract url=<profile>`. The page
+     wears the platform's colours, so only the creator's uploads are read. Then **you judge**:
+     `editemos_brand action=evidence` returns the candidates and the pictures. Look at them.
+     Platform reds and purples, game HUD colours and thumbnail arrows are not the creator's
+     identity; what the avatar and banner agree on is. Correct with `action=set` (use `drop` for
+     colours that do not belong) and name a typeface that matches the lettering you see.
+   - If a profile cannot be read anonymously, say so and ask for a description or a picture.
+   `editemos_brand action=sheet` draws the result on one page for the user to confirm.
 
 ## While working
 
@@ -36,7 +47,9 @@ You have the `editemos_*` MCP tools. If they are not connected, the same operati
   Fix every linter `error` or justify it with `Motion.allow(code, reason)`. No fade-plus-slide-up,
   no rounded lower third with an accent bar, no single easing for everything.
 - **Clips from a long recording:** `editemos_clips file=<stream> count=5 aspect=9:16`. It listens to
-  the whole file in seconds, picks the moments, cuts on pauses and exports them framed. Pass a
+  the whole file in seconds, picks the moments, cuts on pauses and exports them framed. `file` may
+  be a link (needs yt-dlp; use `section` for part of a long stream). Use `layout=fit` for gameplay
+  and screen recordings, `burn=true` for captions in the project's type and colours. Pass a
   transcript when there is one. Show the picks; the user corrects the manifest, you re-export.
 - **Kdenlive:** `editemos_kdenlive action=status|inspect|diff|overlay|draft|learn`. The user's project
   file is never overwritten; `overlay` writes a versioned copy. After they save by hand,

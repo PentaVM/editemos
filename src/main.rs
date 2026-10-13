@@ -41,8 +41,27 @@ const BOOL_FLAGS: &[&str] = &[
     "prune",
     "quick",
 ];
-const NUM_KEYS: &[&str] =
-    &["fps", "duration", "subframes", "shutter", "at", "dur", "k", "n", "max_images", "budget", "timeout", "interval", "jobs", "count", "min", "max", "height", "port"];
+const NUM_KEYS: &[&str] = &[
+    "fps",
+    "duration",
+    "subframes",
+    "shutter",
+    "at",
+    "dur",
+    "k",
+    "n",
+    "max_images",
+    "budget",
+    "timeout",
+    "interval",
+    "jobs",
+    "count",
+    "min",
+    "max",
+    "height",
+    "port",
+    "source_height",
+];
 
 const HELP: &str = "\
 editemos - every video gets its own edit brand.
@@ -55,7 +74,7 @@ START HERE
   studio                      live page: assets, renders, clips and memory as they change
   session [--adapter A] [--model M] [--effort E] [--dir D]   agent in its own window
   chat [--adapter deepseek|openai|openrouter|local|lmstudio] [--model M]   built-in chat with tools
-  clips <recording> [--count 5] [--min 15] [--max 60] [--aspect 9:16|1:1|4:5|16:9|source]
+  clips <recording or link> [--layout crop|fit] [--section 600-1500] [--count 5] [--min 15] [--max 60] [--aspect 9:16|1:1|4:5|16:9|source]
         [--transcript F.srt] [--burn] [--copy] [--plan-only]   best moments, cut and framed
 
 PROJECTS
@@ -65,7 +84,13 @@ PROJECTS
 
 BRAND
   extract [URL] [--backend auto|native|browser|scrapling] [--max-images N] [--fonts] [--ignore-robots]
-  brand [show|derive|lock|unlock]
+        a YouTube, Instagram, TikTok or Twitch profile works too: the platform's own colours are left out
+  brand set [--primary #hex] [--secondary #hex] [--background #hex] [--text #hex]
+            [--heading-font F] [--body-font F] [--name N] [--tagline T] [--voice \"a, b\"]
+  brand describe \"dark, neon green #19e3a1, font Russo One\"      the brand in your own words
+  brand from-images <logo> [banner] [frame]...                    the brand from pictures
+  brand evidence | brand refine [--adapter A] [--notes \"...\"]     let a model judge the evidence
+  brand [show|sheet|derive|lock|unlock]
   assets [list|search <q>|add <file>] [--kind K] [--tag T]
   generate \"prompt\" [--adapter A] [--kind K] [--size S] [-n N] [--dry-run]
 
@@ -605,6 +630,18 @@ fn run(argv: &[String]) -> Result<()> {
         }
         "brand" => {
             put(&mut m, "action", if sub.is_empty() { "show" } else { sub });
+            match sub {
+                "describe" => {
+                    let Some(t) = rest(&a, 2) else { return fail("brand describe needs the description, e.g. \"dark, neon green #19e3a1, font Russo One\"") };
+                    put(&mut m, "action", "set");
+                    put(&mut m, "description", t);
+                }
+                "from-images" => {
+                    let files: Vec<String> = a.pos.iter().skip(2).cloned().collect();
+                    put(&mut m, "files", json!(files));
+                }
+                _ => {}
+            }
             println!("{}", pretty(&ctx.brand_op(&Value::Object(m))?));
         }
         "assets" => {

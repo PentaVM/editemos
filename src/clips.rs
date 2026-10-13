@@ -34,6 +34,11 @@ pub struct Options {
     /// Only analyse and write the manifest.
     pub plan_only: bool,
     pub jobs: usize,
+    /// "crop" fills the frame from the centre; "fit" keeps the whole picture over a blurred copy
+    /// of itself (gameplay, screen recordings, anything where the edges matter).
+    pub layout: String,
+    /// libass style for burned captions (built from the project's edit brand).
+    pub caption_style: Option<String>,
 }
 
 impl Default for Options {
@@ -51,6 +56,8 @@ impl Default for Options {
             burn: false,
             plan_only: false,
             jobs: 2,
+            layout: "crop".into(),
+            caption_style: None,
         }
     }
 }
@@ -143,6 +150,31 @@ fn srt_time(t: f64) -> String {
     format!("{:02}:{:02}:{:02},{:03}", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000)
 }
 
+/// Automatic captions (YouTube and others) "roll": every cue repeats the line
+/// before it, with a 10 ms copy in between. Left alone that doubles every word on
+/// screen and in the scoring. Keep each word once, on the cue where it first appears.
+pub fn dedupe_rolling(cues: Vec<Cue>) -> Vec<Cue> {
+    let mut out: Vec<Cue> = Vec::new();
+    let mut prev_words: Vec<String> = Vec::new();
+    for c in cues {
+        // speaker-change markers are not words
+        let text = c.text.replace(">>", " ");
+        let words: Vec<String> = text.split_whitespace().map(String::from).collect();
+        if words.is_empty() {
+            continue;
+        }
+        // the longest tail of what was already said that this cue starts with
+        let max = prev_words.len().min(words.len());
+        let overlap = (1..=max).rev().find(|n| prev_words[prev_words.len() - n..] == words[..*n]).unwrap_or(0);
+        let fresh = &words[overlap..];
+        if c.end - c.start >= 0.05 && !fresh.is_empty() {
+            out.push(Cue { start: c.start, end: c.end, text: fresh.join(" ") });
+        }
+        prev_words = words;
+    }
+    out
+}
+
 /// The cues inside a clip, re-timed to start at zero.
 pub fn slice_srt(cues: &[Cue], start: f64, end: f64) -> String {
     let mut out = String::new();
@@ -152,6 +184,68 @@ pub fn slice_srt(cues: &[Cue], start: f64, end: f64) -> String {
         out.push_str(&format!("{n}\n{} --> {}\n{}\n\n", srt_time(c.start.max(start) - start), srt_time(c.end.min(end) - start), c.text));
     }
     out
+}
+
+fn ytdlp() -> Option<Command> {
+    if let Ok(p) = std::env::var("EDITEMOS_YTDLP") {
+        if Path::new(&p).exists() {
+            return Some(Command::new(p));
+        }
+    }
+    let ok = |c: &mut Command| c.arg("--version").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false);
+    if ok(&mut Command::new("yt-dlp")) {
+        return Some(Command::new("yt-dlp"));
+    }
+    for py in ["python", "python3"] {
+        if ok(Command::new(py).args(["-m", "yt_dlp"])) {
+            let mut c = Command::new(py);
+            c.args(["-m", "yt_dlp"]);
+            return Some(c);
+        }
+    }
+    None
+}
+
+pub fn is_url(s: &str) -> bool {
+    s.starts_with("http://") || s.starts_with("https://")
+}
+
+/// Fetch a recording (and its subtitles, when the site has them) with yt-dlp, which
+/// must already be installed. `section` is "START-END" in seconds or hh:mm:ss to take
+/// only part of a long stream. Only use this for footage you may edit.
+pub fn fetch(url: &str, dir: &Path, max_height: u32, section: Option<&str>) -> Result<(PathBuf, Option<PathBuf>)> {
+    let Some(mut cmd) = ytdlp() else {
+        return fail("a URL needs yt-dlp, which is not installed (pip install yt-dlp, or set EDITEMOS_YTDLP). You can also download the recording yourself and pass the file");
+    };
+    std::fs::create_dir_all(dir)?;
+    let before: Vec<PathBuf> = std::fs::read_dir(dir)?.flatten().map(|e| e.path()).collect();
+    cmd.args(["--no-playlist", "--no-progress", "--restrict-filenames", "-f", &format!("bv*[height<={max_height}]+ba/b[height<={max_height}]/b"), "--merge-output-format", "mp4"]);
+    cmd.args(["--write-subs", "--write-auto-subs", "--sub-langs", "en.*,es.*", "--convert-subs", "srt", "--ignore-errors"]);
+    if let Some(ff) = find_ffmpeg().filter(|f| f.is_absolute()) {
+        cmd.arg("--ffmpeg-location").arg(ff);
+    }
+    if let Some(s) = section {
+        cmd.args(["--download-sections", &format!("*{s}")]);
+    }
+    cmd.arg("-o").arg(dir.join("%(id)s.%(ext)s")).arg(url);
+    let out = cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).output()?;
+    let new: Vec<PathBuf> = std::fs::read_dir(dir)?.flatten().map(|e| e.path()).filter(|p| !before.contains(p)).collect();
+    let video = new.iter().find(|p| p.extension().map(|e| e == "mp4" || e == "mkv" || e == "webm").unwrap_or(false)).cloned().or_else(|| {
+        // already downloaded on an earlier run
+        before.iter().filter(|p| p.extension().map(|e| e == "mp4").unwrap_or(false)).max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok()).cloned()
+    });
+    let Some(video) = video else {
+        return fail(format!("yt-dlp could not fetch {url}: {}", crate::util::truncate_chars(String::from_utf8_lossy(&out.stderr).trim(), 300)));
+    };
+    let stem = video.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    // the language that was actually spoken ("-orig") before any machine translation
+    let mut subs: Vec<PathBuf> = std::fs::read_dir(dir)?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().map(|e| e == "srt").unwrap_or(false) && p.file_name().map(|n| n.to_string_lossy().starts_with(&stem)).unwrap_or(false))
+        .collect();
+    subs.sort_by_key(|p| (!p.to_string_lossy().contains("-orig"), p.to_string_lossy().len()));
+    Ok((video, subs.into_iter().next()))
 }
 
 pub struct Audio {
@@ -368,13 +462,19 @@ fn export_one(ffmpeg: &Path, o: &Options, c: &Clip, out: &Path, srt: Option<&Pat
             let h = o.height - o.height % 2;
             let w = (h as u64 * aw as u64 / ah as u64) as u32;
             let w = w - w % 2;
-            // fill the frame: scale until both sides cover it, then crop the centre
-            vf.push(format!("scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1"));
+            if o.layout == "fit" {
+                // the whole picture, centred, over a blurred and darkened copy that fills the frame
+                vf.push(format!("split[a][b];[a]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=24:4,eq=brightness=-0.12[bg];[b]scale={w}:-2[fg];[bg][fg]overlay=0:(H-h)/2,setsar=1"));
+            } else {
+                // fill the frame: scale until both sides cover it, then crop the centre
+                vf.push(format!("scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1"));
+            }
         }
         if let (true, Some(s)) = (o.burn, srt) {
             // the filter parser dislikes drive letters; run next to the file instead
             let name = s.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            vf.push(format!("subtitles={name}:force_style='Fontsize=13,Outline=1.2,MarginV=60,Alignment=2'"));
+            let style = o.caption_style.clone().unwrap_or_else(|| "Fontsize=13,Outline=1.2,MarginV=60,Alignment=2".into());
+            vf.push(format!("subtitles={name}:force_style='{style}'"));
             if let Some(dir) = s.parent() {
                 cmd.current_dir(dir);
             }
@@ -431,7 +531,7 @@ pub fn run(o: &Options) -> Result<Manifest> {
     let t0 = Instant::now();
     let audio = analyse_audio(&ffmpeg, &o.input)?;
     let cues = match &o.transcript {
-        Some(t) => parse_transcript(&std::fs::read_to_string(t)?),
+        Some(t) => dedupe_rolling(parse_transcript(&std::fs::read_to_string(t)?)),
         None => Vec::new(),
     };
     let mut clips = plan(&audio, &cues, o);
@@ -526,6 +626,17 @@ mod tests {
         assert!(clips[0].end <= clips[1].start, "clips do not overlap");
         // every edge sits on a silence edge (10 s grid), not mid-sentence
         assert!(((best.start + 0.12) % 10.0) < 0.5 || best.start == 0.0, "start {} is not on a pause", best.start);
+    }
+
+    #[test]
+    fn rolling_captions_say_each_word_once() {
+        let srt = "1\n00:00:00,000 --> 00:00:01,149\n>> Oh no. Are you good?\n\n2\n00:00:01,149 --> 00:00:01,159\nOh no. Are you good?\n\n3\n00:00:01,159 --> 00:00:02,350\nOh no. Are you good? >> It's all good. The\n\n4\n00:00:02,350 --> 00:00:02,360\nIt's all good. The\n\n5\n00:00:02,360 --> 00:00:03,500\nIt's all good. The game is back\n";
+        let c = dedupe_rolling(parse_transcript(srt));
+        let all = c.iter().map(|x| x.text.as_str()).collect::<Vec<_>>().join(" | ");
+        assert_eq!(all, "Oh no. Are you good? | It's all good. The | game is back");
+        // ordinary subtitles pass through untouched
+        let plain = dedupe_rolling(parse_transcript("1\n00:00:01,000 --> 00:00:02,000\nHola\n\n2\n00:00:02,000 --> 00:00:03,000\nmundo\n"));
+        assert_eq!(plain.len(), 2);
     }
 
     #[test]

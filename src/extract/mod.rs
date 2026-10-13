@@ -7,6 +7,7 @@
 //! (the Scrapling CLI, for sites that fight scrapers). `auto` picks.
 
 pub mod analyze;
+pub mod profile;
 pub mod scrapling;
 
 use crate::assets;
@@ -314,6 +315,11 @@ pub fn run(home: &Home, project: &Project, url_in: &str, opts: &Options) -> Resu
     }
     if !opts.ignore_robots && !robots_allows(&url) {
         return fail("robots.txt disallows this path for generic crawlers. Re-run with --ignore-robots only for sites you own or have permission to analyse");
+    }
+
+    // a social profile wears the platform's colours, not the creator's: read it differently
+    if let Some(platform) = profile::platform_of(&url) {
+        return profile::run(home, project, platform, &url, opts, started);
     }
 
     let mut page = fetch_page(home, url.as_str(), opts, &mut warnings)?;
