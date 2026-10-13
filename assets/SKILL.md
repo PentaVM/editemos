@@ -61,6 +61,13 @@ You have the `editemos_*` MCP tools. If they are not connected, the same operati
   by what was said and flashed with the label). Aim for the length the user asked for. Then
   `action=build spec={...}`. Skip sponsor reads. Captions are transcribed from the clip's own
   audio; never show site auto-captions.
+- **When words do not carry the story** (a match, a tournament, a player who goes quiet when
+  concentrating, music-only gameplay): do not plan from the transcript. `editemos_clips
+  action=events` finds what happened by sound alone; `action=look from=<s> to=<s>` returns a grid
+  of frames with their times. Look before you cut: read the scoreboard, the replay, the faces.
+  A highlight is build-up, moment and aftermath, so start before the rise and keep the reaction
+  or replay; use `label` on segments to carry context the picture shows (score, clock, who).
+  `action=highlights` does a first pass automatically.
 - **Typeface:** never ship a system fallback. `editemos_fonts` shows what the project uses and
   why. If the user dislikes it, `action=reject` (ask: this project or always) and show the
   replacement; if they like one, `action=set`. Taste that is the user's and not one client's

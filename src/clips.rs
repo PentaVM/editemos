@@ -328,6 +328,141 @@ pub fn analyse_audio(ffmpeg: &Path, input: &Path) -> Result<Audio> {
     Ok(Audio { duration, loud, silences })
 }
 
+/* ------------------------------ understanding without words ------------------------------ */
+
+/// Something happened here, judged by sound alone: a crowd, a caster, a reaction.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Event {
+    /// Loudest instant.
+    pub peak: f64,
+    /// How far above the recording's normal level, in LU.
+    pub over: f64,
+    /// Where the build-up began (the level left its baseline).
+    pub rise: f64,
+    /// Where it calmed down again.
+    pub settle: f64,
+    /// Picture cuts in the 20 seconds after the peak: a replay or a new camera usually starts at the first.
+    #[serde(default)]
+    pub cuts_after: Vec<f64>,
+}
+
+/// Find the moments where the sound says something happened. Works on footage
+/// where nobody speaks (or everybody shouts): matches, gameplay, concerts.
+#[allow(clippy::needless_range_loop)]
+pub fn events(audio: &Audio, max: usize) -> Vec<Event> {
+    let n = audio.loud.len();
+    if n < 50 {
+        return Vec::new();
+    }
+    // one-second moving average, so a single click is not an event
+    let mut smooth = vec![0f64; n];
+    let mut acc = 0f64;
+    for i in 0..n {
+        acc += audio.loud[i] as f64;
+        if i >= 10 {
+            acc -= audio.loud[i - 10] as f64;
+        }
+        smooth[i] = acc / (i.min(9) + 1) as f64;
+    }
+    let mut sorted = smooth.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let base = sorted[n / 2];
+    let p90 = sorted[n * 9 / 10];
+    // an event stands clearly above the ordinary: at least 2.5 LU, more on dynamic recordings
+    let threshold = base + ((p90 - base) * 0.9).max(2.5);
+    let mut peaks: Vec<(f64, usize)> = Vec::new();
+    for i in 30..n - 1 {
+        let lo = i.saturating_sub(30);
+        let hi = (i + 30).min(n - 1);
+        if smooth[i] >= threshold && (lo..=hi).all(|j| smooth[j] <= smooth[i]) {
+            peaks.push((smooth[i], i));
+        }
+    }
+    peaks.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut kept: Vec<(f64, usize)> = Vec::new();
+    for p in peaks {
+        // one event per twelve seconds: the loudest wins
+        if kept.iter().all(|k| (k.1 as i64 - p.1 as i64).abs() > 120) {
+            kept.push(p);
+        }
+        if kept.len() >= max {
+            break;
+        }
+    }
+    kept.sort_by_key(|k| k.1);
+    kept.into_iter()
+        .map(|(level, i)| {
+            // walk back to where the level last sat at its baseline for a second
+            let mut r = i;
+            let mut calm = 0;
+            while r > 0 && i - r < 300 {
+                r -= 1;
+                calm = if smooth[r] <= base + 0.8 { calm + 1 } else { 0 };
+                if calm >= 10 {
+                    r += 10;
+                    break;
+                }
+            }
+            let mut s = i;
+            calm = 0;
+            while s + 1 < n && s - i < 250 {
+                s += 1;
+                calm = if smooth[s] <= base + 1.2 { calm + 1 } else { 0 };
+                if calm >= 15 {
+                    s -= 15;
+                    break;
+                }
+            }
+            Event { peak: i as f64 / 10.0, over: ((level - base) * 10.0).round() / 10.0, rise: r as f64 / 10.0, settle: s as f64 / 10.0, cuts_after: Vec::new() }
+        })
+        .collect()
+}
+
+/// Times at which the picture cuts between `from` and `to` (decoded small, so it is cheap).
+pub fn scene_cuts(ffmpeg: &Path, src: &Path, from: f64, to: f64) -> Vec<f64> {
+    let out = Command::new(ffmpeg)
+        .args(["-hide_banner", "-nostats", "-ss", &format!("{from:.2}"), "-t", &format!("{:.2}", (to - from).max(0.5)), "-an", "-i"])
+        .arg(src)
+        .args(["-vf", "scale=160:-2,select='gt(scene,0.32)',metadata=print:file=-", "-f", "null", "-"])
+        .stdin(Stdio::null())
+        .output();
+    let Ok(out) = out else { return Vec::new() };
+    let mut v: Vec<f64> = Vec::new();
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        if let Some(i) = line.find("pts_time:") {
+            if let Some(t) = line[i + 9..].split_whitespace().next().and_then(|x| x.parse::<f64>().ok()) {
+                let t = ((from + t) * 10.0).round() / 10.0;
+                if v.last().map(|l| t - l > 0.4).unwrap_or(true) {
+                    v.push(t);
+                }
+            }
+        }
+    }
+    v
+}
+
+/// A grid of frames between two times, for a person or a model to *see* what
+/// happens. Returns the time of each frame, row by row.
+pub fn storyboard(ffmpeg: &Path, src: &Path, from: f64, to: f64, cols: u32, rows: u32, out: &Path) -> Result<Vec<f64>> {
+    let n = (cols * rows).max(1);
+    let dur = (to - from).max(0.5);
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let r = Command::new(ffmpeg)
+        .args(["-hide_banner", "-loglevel", "error", "-y", "-ss", &format!("{from:.2}"), "-t", &format!("{dur:.2}"), "-an", "-i"])
+        .arg(src)
+        .args(["-vf", &format!("fps={:.5},scale=384:-2,tile={cols}x{rows}:padding=4:margin=4", n as f64 / dur), "-frames:v", "1"])
+        .arg(out)
+        .stdin(Stdio::null())
+        .output()?;
+    if !r.status.success() || !out.exists() {
+        return fail(format!("could not make the storyboard: {}", crate::util::truncate_chars(String::from_utf8_lossy(&r.stderr).trim(), 200)));
+    }
+    // the fps filter samples the middle of each interval
+    Ok((0..n).map(|i| ((from + dur * (i as f64 + 0.5) / n as f64) * 10.0).round() / 10.0).collect())
+}
+
 const HYPE: &[&str] = &[
     "wow",
     "omg",
@@ -665,6 +800,30 @@ mod tests {
         // ordinary subtitles pass through untouched
         let plain = dedupe_rolling(parse_transcript("1\n00:00:01,000 --> 00:00:02,000\nHola\n\n2\n00:00:02,000 --> 00:00:03,000\nmundo\n"));
         assert_eq!(plain.len(), 2);
+    }
+
+    #[test]
+    fn sound_alone_finds_what_happened() {
+        // five minutes of steady noise, with a build-up to a roar at 2:00 and a shorter one at 4:00
+        let mut loud = vec![-28f32; 3000];
+        for (i, v) in loud.iter_mut().enumerate() {
+            let t = i as f32 / 10.0;
+            if (112.0..120.0).contains(&t) {
+                *v = -28.0 + (t - 112.0) * 1.5; // climbing
+            } else if (120.0..126.0).contains(&t) {
+                *v = -12.0; // the roar
+            } else if (240.0..243.0).contains(&t) {
+                *v = -16.0;
+            }
+        }
+        let ev = events(&Audio { duration: 300.0, loud, silences: Vec::new() }, 5);
+        assert_eq!(ev.len(), 2, "{ev:?}");
+        assert!((120.0..127.5).contains(&ev[0].peak), "peak at the roar: {}", ev[0].peak);
+        assert!(ev[0].rise < 115.0 && ev[0].rise > 105.0, "the build-up is part of the story: rise {}", ev[0].rise);
+        assert!(ev[0].settle >= 125.0 && ev[0].settle < 135.0, "settle {}", ev[0].settle);
+        assert!(ev[0].over > 10.0 && ev[1].peak > 239.0);
+        // a flat recording has no events
+        assert!(events(&Audio { duration: 300.0, loud: vec![-25.0; 3000], silences: Vec::new() }, 5).is_empty());
     }
 
     #[test]

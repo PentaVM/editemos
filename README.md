@@ -289,6 +289,21 @@ The plan is a small JSON document, the same whoever writes it:
   [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`editemos tools install-whisper`), one
   word lit at a time. Site auto-captions are used to *find* moments, never to show them.
 
+### When nobody is talking
+
+A match, a tournament broadcast, a player who goes silent when it gets tense: the words are
+missing exactly where the story is. So the story is read from sound and picture instead.
+
+```bash
+editemos clips events match.mp4                  # what happened, by sound: peak, build-up, calm, picture cuts
+editemos clips look match.mp4 --from 392 --to 422   # a grid of frames with their times
+editemos clips highlights match.mp4 --count 3    # build-up, moment and aftermath, automatically
+```
+
+`events` hears that something happened; `look` lets the agent (or you) see what it was: the
+scoreboard, the replay, a face. A plan made that way can tell a story no transcript contains,
+for example two goals against, the scorer smiling, and then the answer.
+
 ### Typefaces, chosen and remembered
 
 A system fallback is not a design decision. `editemos fonts` picks from a catalogue of open
