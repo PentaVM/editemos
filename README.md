@@ -304,6 +304,16 @@ editemos clips highlights match.mp4 --count 3    # build-up, moment and aftermat
 scoreboard, the replay, a face. A plan made that way can tell a story no transcript contains,
 for example two goals against, the scorer smiling, and then the answer.
 
+### The cut is checked before it ships
+
+Every story build returns a **review sheet**: one row per segment, with the two frames on each
+side showing what was left out just before and just after. If those frames show the set-up or
+the outcome, the segment is cutting the story, and whoever planned it moves the edge and builds
+again. Alongside it come **checks** from the sound (a peak right after a cut, a build-up entered
+halfway). The builder also does two things on its own: edges within half a second of a change
+of shot are moved onto it, so no stray frames of the previous shot flash by, and a jump between
+scenes gets a short dip (`--transition dip|flash|cut`) while continuous footage is left alone.
+
 ### Typefaces, chosen and remembered
 
 A system fallback is not a design decision. `editemos fonts` picks from a catalogue of open

@@ -588,10 +588,11 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
         let d = p.end - p.start;
         let mut dip = String::new();
         if o.transition != "cut" && d > 0.5 {
-            if i > 0 && pieces[i - 1].origin != p.origin {
+            // (footage that simply continues is not a new scene, however it was planned)
+            if i > 0 && pieces[i - 1].origin != p.origin && (p.start - pieces[i - 1].end).abs() > 1.0 {
                 dip.push_str(&format!(",fade=t=in:st=0:d=0.12:color={colour}"));
             }
-            if i + 1 < n && pieces[i + 1].origin != p.origin {
+            if i + 1 < n && pieces[i + 1].origin != p.origin && (pieces[i + 1].start - p.end).abs() > 1.0 {
                 dip.push_str(&format!(",fade=t=out:st={:.3}:d=0.12:color={colour}", d - 0.12));
             }
         }
