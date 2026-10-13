@@ -22,11 +22,22 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # ffmpeg, so the render and clips tests really run (the runners ship a browser)
+      - name: ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+      - name: ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
       - name: Build
         run: cargo build --locked
       - name: Test
-        run: cargo test --locked
-        # Tests that need a browser or ffmpeg skip themselves when they are missing.
+        run: cargo test --locked -- --nocapture
+      - name: Doctor
+        run: cargo run --locked --quiet -- doctor
 
   lint:
     runs-on: ubuntu-latest
