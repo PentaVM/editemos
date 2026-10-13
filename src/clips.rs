@@ -348,6 +348,7 @@ pub struct Event {
 
 /// Find the moments where the sound says something happened. Works on footage
 /// where nobody speaks (or everybody shouts): matches, gameplay, concerts.
+#[allow(clippy::needless_range_loop)]
 pub fn events(audio: &Audio, max: usize) -> Vec<Event> {
     let n = audio.loud.len();
     if n < 50 {
