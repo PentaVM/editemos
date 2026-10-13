@@ -1,0 +1,49 @@
+<div id="vrule" class="abs"></div>
+<div id="num" class="h abs"></div>
+<div id="tmask" class="mask"><div id="title" class="h"></div></div>
+<div id="sub" class="m abs"></div>
+</div>
+<script>
+/*PRELUDE*/
+// A chapter card: a number that counts up in whole steps, a title from a mask.
+const target = parseInt(P.number || '2', 10);
+const title = String(P.title || P.text || 'Chapter');
+const sub = String(P.subtitle || '');
+const numSize = Math.min(H * 0.5, W * 0.3);
+const tSize = Math.min(H * 0.1, (W * 0.5) / Math.max(6, title.length * 0.58));
+const left = V === 2 ? W * 0.5 : MX;
+
+css($('#vrule'), { left: left - 28 * S + 'px', top: MY + 'px', width: Math.max(3, 4 * S) + 'px', height: H - 2 * MY + 'px', background: 'var(--accent)', transformOrigin: '50% 0' });
+const num = $('#num');
+css(num, { left: left + 'px', top: MY - numSize * 0.06 + 'px', fontSize: numSize + 'px', lineHeight: numSize + 'px', color: 'var(--fg)', '--wght': W1, '--wdth': 78, fontVariantNumeric: 'tabular-nums', letterSpacing: -numSize * 0.04 + 'px' });
+num.textContent = String(0).padStart(2, '0');
+css($('#tmask'), { left: left + 'px', top: H - MY - tSize * 1.4 + 'px', height: tSize * 1.2 + 'px', width: W - left - MX + 'px' });
+css($('#title'), { fontSize: tSize + 'px', lineHeight: tSize * 1.1 + 'px', color: 'var(--fg)', '--wght': Math.round((W0 + W1) / 2), '--wdth': 96 });
+$('#title').textContent = title;
+css($('#sub'), { left: left + 'px', top: H - MY + 8 * S + 'px', fontSize: 22 * S + 'px', color: 'var(--muted)' });
+$('#sub').textContent = sub;
+
+const tl = Motion.timeline();
+const t0 = D[0] * 0.6;
+tl.fromTo('#vrule', { scaleY: 0 }, { scaleY: 1 }, { at: t0, dur: D[3], ease: E.travel });
+// the counter climbs in whole numbers; the last step lands on the impact curve
+const countDur = D[2] + D[1];
+tl.call((t) => {
+  const p = Math.min(1, Math.max(0, (t - (t0 + D[0])) / countDur));
+  const eased = Motion.bezier(...E.travel)(p);
+  num.textContent = String(Math.round(target * eased)).padStart(2, '0');
+});
+tl.fromTo('#num', { x: -30 * S }, { x: 0 }, { at: t0 + D[0], dur: countDur, ease: E.travel });
+tl.fromTo('#title', { yPercent: 120 }, { yPercent: 0 }, { at: t0 + D[0] + countDur * 0.7, dur: D[1], ease: E.enter });
+if (sub) tl.fromTo('#sub', { clipR: 100 }, { clipR: 0 }, { at: t0 + D[0] + countDur, dur: D[1], ease: E.enter });
+
+const outAt = t0 + D[0] + countDur + D[1] + HOLD + D[3] * 0.6;
+tl.to('#title', { yPercent: -120 }, { at: outAt, dur: D[1] * 0.75, ease: E.exit });
+tl.to('#num', { x: 40 * S }, { at: outAt, dur: D[1], ease: E.exit });
+tl.to('#sub', { clipL: 100 }, { at: outAt, dur: D[1] * 0.6, ease: E.exit });
+tl.to('#vrule', { scaleY: 0 }, { at: outAt + D[0], dur: D[2] * 0.75, ease: E.exit });
+tl.set('#num', { opacity: 0 }, outAt + D[1]);
+
+Motion.mount(tl, { duration: P.duration || outAt + D[2] + 0.2, fps: FPS });
+</script>
+</body></html>

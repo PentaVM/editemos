@@ -1,0 +1,394 @@
+# Curated catalog of third-party agent skills for video editing and motion graphics.
+#
+# editemos does NOT redistribute these. `editemos skills sync` downloads the text files
+# (SKILL.md and references) straight from each upstream repository, pinned to the commit
+# it resolved, and records a hash of every file in ~/.editemos/skills.lock.
+# Licences were checked from each repository's LICENSE file; the original LICENSE is
+# copied next to the downloaded skills.
+#
+# Fields:
+#   id        local name
+#   repo      owner/name on GitHub
+#   license   SPDX id declared upstream
+#   tags      free labels; `cloud` entries send media to a hosted service and are
+#             skipped unless you pass --include-cloud
+#   only      optional path prefixes; when set, only skill folders under them are taken
+
+[[skill]]
+id = "gsap"
+repo = "greensock/gsap-skills"
+license = "MIT"
+tags = ["motion-graphics", "gsap", "official"]
+note = "Official GSAP skills: timelines, easing, ScrollTrigger, plugins."
+
+[[skill]]
+id = "lottiefiles-motion"
+repo = "LottieFiles/motion-design-skill"
+license = "MIT"
+tags = ["motion-graphics", "principles", "lottie"]
+note = "Timing, easing and choreography principles for motion design."
+
+[[skill]]
+id = "iart-web-animation"
+repo = "iart-ai/web-animation-skills"
+license = "MIT"
+tags = ["motion-graphics", "gsap", "svg", "lottie"]
+
+[[skill]]
+id = "iart-kinetic-type"
+repo = "iart-ai/kinetic-typography-skills"
+license = "MIT"
+tags = ["motion-graphics", "typography"]
+
+[[skill]]
+id = "bang-motion"
+repo = "bangtutorial/bang-motion"
+license = "MIT"
+tags = ["motion-graphics", "browser", "openers"]
+
+[[skill]]
+id = "motion-video"
+repo = "bestagentkits/motion-video-skill"
+license = "MIT"
+tags = ["motion-graphics", "beat-sync"]
+
+[[skill]]
+id = "motionmaxxing"
+repo = "Tejashmakwana/motionmaxxing"
+license = "Apache-2.0"
+tags = ["motion-graphics", "anti-generic"]
+note = "Turns generic AI motion into considered motion graphics."
+
+[[skill]]
+id = "remotion-claude"
+repo = "haidrrrry/claude-remotion-skill"
+license = "MIT"
+tags = ["motion-graphics", "remotion"]
+
+[[skill]]
+id = "html-animation"
+repo = "acelera-agency/html-animation"
+license = "MIT"
+tags = ["motion-graphics", "html", "frame-exact"]
+
+[[skill]]
+id = "motion-ref"
+repo = "joepUI/motion-ref-skill"
+license = "MIT"
+tags = ["motion-graphics", "ui-motion"]
+
+[[skill]]
+id = "manim"
+repo = "adithya-s-k/manim_skill"
+license = "MIT"
+tags = ["motion-graphics", "manim", "math"]
+
+[[skill]]
+id = "manim-yusuke"
+repo = "Yusuke710/manim-skill"
+license = "MIT"
+tags = ["motion-graphics", "manim"]
+
+[[skill]]
+id = "hyperframes"
+repo = "heygen-com/hyperframes"
+license = "Apache-2.0"
+tags = ["motion-graphics", "video-editing", "html"]
+only = ["skills/", ".claude/skills/"]
+note = "HeyGen HyperFrames: motion doctrine, cut-the-curve, captions, creative direction."
+
+[[skill]]
+id = "video-use"
+repo = "browser-use/video-use"
+license = "MIT"
+tags = ["video-editing", "cloud"]
+note = "Uses a hosted transcription service; skipped unless --include-cloud."
+
+[[skill]]
+id = "chatgpt-video-editing"
+repo = "Jaycheng1103/chatgpt-video-editing-skills"
+license = "MIT"
+tags = ["video-editing", "short-form"]
+
+[[skill]]
+id = "human-editor-collab"
+repo = "roysahar11/agentic-video-editing-collab"
+license = "MIT"
+tags = ["video-editing", "professional", "collaboration"]
+note = "Working with human editors on professional edits."
+
+[[skill]]
+id = "qiaomu-cut"
+repo = "joeseesun/qiaomu-cut-skill"
+license = "MIT"
+tags = ["video-editing", "branding", "subtitles"]
+
+[[skill]]
+id = "davinci-alex"
+repo = "Forward-Future/alexs-davinci-editing-skills"
+license = "MIT"
+tags = ["video-editing", "davinci"]
+
+[[skill]]
+id = "davinci-agent"
+repo = "dax8it/davinci-agent"
+license = "MIT"
+tags = ["video-editing", "davinci"]
+
+[[skill]]
+id = "open-fusion"
+repo = "legionsound/open-fusion-mcp"
+license = "MIT"
+tags = ["motion-graphics", "fusion", "davinci"]
+
+[[skill]]
+id = "video-recap"
+repo = "zenstory-ai/video-recap-skills"
+license = "MIT"
+tags = ["video-editing", "narration"]
+
+[[skill]]
+id = "videodb"
+repo = "video-db/skills"
+license = "MIT"
+tags = ["video-editing", "cloud"]
+note = "Server-side video workflows on a hosted service; skipped unless --include-cloud."
+
+[[skill]]
+id = "anthropic-design"
+repo = "anthropics/skills"
+license = "Apache-2.0"
+tags = ["design", "anti-generic", "motion-graphics"]
+only = [
+  "skills/frontend-design/",
+  "skills/canvas-design/",
+  "skills/algorithmic-art/",
+  "skills/slack-gif-creator/",
+  "skills/theme-factory/",
+  "skills/brand-guidelines/",
+]
+note = "Per-skill Apache-2.0 LICENSE.txt; document skills (docx, pdf, pptx, xlsx) are NOT included."
+
+[[skill]]
+id = "ecc-video"
+repo = "affaan-m/everything-claude-code"
+license = "MIT"
+tags = ["video-editing", "motion-graphics"]
+only = [
+  ".agents/skills/video-editing/",
+  "pi/core/skills/motion-foundations/",
+  "pi/core/skills/motion-patterns/",
+  "pi/core/skills/motion-advanced/",
+]
+
+[[skill]]
+id = "awesome-motion"
+repo = "frankxai/awesome-motion-design-agent-skills"
+license = "CC0-1.0"
+tags = ["motion-graphics", "curated"]
+
+# --- more motion graphics -------------------------------------------------------------
+
+[[skill]]
+id = "video-shotcraft"
+repo = "Vincentwei1021/video-shotcraft"
+license = "Apache-2.0"
+tags = ["motion-graphics", "remotion", "product-video"]
+note = "Cinematic product videos in code: a library of shot recipes."
+
+[[skill]]
+id = "claude-motion-design"
+repo = "howseen-ai/claude-motion-design"
+license = "MIT"
+tags = ["motion-graphics", "html", "ffmpeg"]
+note = "Motion design videos in pure code: HTML + Playwright + ffmpeg."
+
+[[skill]]
+id = "code-motion-graphics"
+repo = "charlie947/motion-graphics-skills"
+license = "MIT"
+tags = ["motion-graphics", "code"]
+note = "Launch-grade motion graphics where every frame is code."
+
+[[skill]]
+id = "product-launch-motion"
+repo = "AbubakrChan/product-launch-motion"
+license = "MIT"
+tags = ["motion-graphics", "product"]
+
+[[skill]]
+id = "hyperframes-reel"
+repo = "Sunwood-ai-labs/hyperframes-motion-reel-skill"
+license = "MIT"
+tags = ["motion-graphics", "beat-sync", "html"]
+
+[[skill]]
+id = "iart-motion-design"
+repo = "iart-ai/motion-design-skills"
+license = "MIT"
+tags = ["motion-graphics", "principles", "brand"]
+
+[[skill]]
+id = "iart-webgl"
+repo = "iart-ai/webgl-animation-skills"
+license = "MIT"
+tags = ["motion-graphics", "webgl", "3d"]
+
+[[skill]]
+id = "promo-video-maker"
+repo = "liyupi/ai-promo-video-maker"
+license = "MIT"
+tags = ["motion-graphics", "product"]
+
+[[skill]]
+id = "motion-ae-blender"
+repo = "LobzyJay/motion-design-with-claude-and-codex"
+license = "MIT"
+tags = ["motion-graphics", "reference", "adobe", "blender"]
+note = "Knowledge for After Effects and Blender; editemos itself needs neither."
+
+[[skill]]
+id = "blixvip-motion"
+repo = "blixvip/skills"
+license = "MIT"
+tags = ["motion-graphics", "reference", "adobe"]
+
+# --- more video editing ---------------------------------------------------------------
+
+[[skill]]
+id = "claude-shorts"
+repo = "AgriciDaniel/claude-shorts"
+license = "MIT"
+tags = ["video-editing", "short-form", "remotion"]
+note = "Long-form to short-form with rendered captions."
+
+[[skill]]
+id = "jianshuo-video"
+repo = "jianshuo/claude-skills"
+license = "MIT"
+tags = ["video-editing", "transcribe", "subtitles", "dub"]
+
+[[skill]]
+id = "master-skills"
+repo = "Jakeschincariol/master-skills"
+license = "MIT"
+tags = ["video-editing"]
+
+[[skill]]
+id = "ghost-editor"
+repo = "kurbaitaev/ghost-editor"
+license = "MIT"
+tags = ["video-editing", "talking-head", "captions"]
+
+[[skill]]
+id = "vertical-video"
+repo = "nopefallacy/vertical-video-editing-skills"
+license = "MIT"
+tags = ["video-editing", "vertical", "captions"]
+
+[[skill]]
+id = "video-editing-captions"
+repo = "6missedcalls/video-editing-skill"
+license = "MIT"
+tags = ["video-editing", "jump-cut", "captions"]
+
+[[skill]]
+id = "open-edits"
+repo = "kevinbadi/open-edits"
+license = "MIT"
+tags = ["video-editing", "harness"]
+
+[[skill]]
+id = "iart-explainer"
+repo = "iart-ai/explainer-video-skills"
+license = "MIT"
+tags = ["video-editing", "explainer", "storyboard"]
+
+[[skill]]
+id = "cut-as-code"
+repo = "WhiteTowerAI/cut-as-code"
+license = "MIT"
+tags = ["video-editing", "agentic"]
+
+[[skill]]
+id = "reel-kit"
+repo = "justynberk/reel-kit"
+license = "MIT"
+tags = ["video-editing", "vertical"]
+
+[[skill]]
+id = "cutlist"
+repo = "itsryanlenk/cutlist"
+license = "MIT"
+tags = ["video-editing", "clips"]
+
+[[skill]]
+id = "video-production-kit"
+repo = "selmakcby/video-production-kit"
+license = "MIT"
+tags = ["video-editing", "transcript", "cut-list"]
+
+[[skill]]
+id = "story-first-editing"
+repo = "Fred-In-tech/story-first-video-editing"
+license = "MIT"
+tags = ["video-editing", "story", "professional"]
+
+[[skill]]
+id = "video-agent-skills"
+repo = "chenyuxiaojin/video-agent-skills"
+license = "MIT"
+tags = ["video-editing", "pipeline"]
+
+[[skill]]
+id = "davinci-resolve-skills"
+repo = "ChaiWithJai/davinci-resolve-claude-skills"
+license = "MIT"
+tags = ["video-editing", "davinci"]
+
+[[skill]]
+id = "davinci-resolve-mcp"
+repo = "lordhoell/davinci-resolve-mcp"
+license = "MIT"
+tags = ["video-editing", "davinci", "mcp"]
+
+[[skill]]
+id = "cutmaster"
+repo = "CelaviiHQ/cutmaster-ai"
+license = "MIT"
+tags = ["video-editing", "davinci", "mcp"]
+
+[[skill]]
+id = "color-grade-ai"
+repo = "isaacrowntree/color-grade-ai"
+license = "MIT"
+tags = ["video-editing", "color", "lut"]
+
+# --- pre-production -------------------------------------------------------------------
+
+[[skill]]
+id = "shotkit"
+repo = "whystrohm/shotkit"
+license = "Apache-2.0"
+tags = ["pre-production", "storyboard", "brand"]
+
+[[skill]]
+id = "video-storyboard"
+repo = "OYYH-Apple/video-storyboard-generator"
+license = "MIT"
+tags = ["pre-production", "storyboard"]
+
+[[skill]]
+id = "director-skill"
+repo = "wuwangzhang1216/DirectorSKILL"
+license = "MIT"
+tags = ["pre-production", "shot-list"]
+
+# Link-only (no clear redistributable licence, or copyleft). Kept here as pointers.
+# - remotion-dev/skills            no repository licence; Remotion itself has its own licence
+# - calesthio/OpenMontage          AGPL-3.0
+# - 0xsline/OpenChatCut            AGPL-3.0
+# - Barty-Bart/motion-graphics     no licence stated
+# - nateherkai/hyperframes-student-kit   no licence stated
+# - DayadaUP/claude-code-auto-video-edit slash command, not a SKILL.md skill (MIT)
+# - kdenlive-mcp / davinci-resolve-mcp servers are connected through their own MCP configs

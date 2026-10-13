@@ -1,0 +1,35 @@
+[package]
+name = "editemos"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+description = "Every video gets its own edit brand: persistent per-project memory, brand and asset extraction, open-source motion graphics and an MCP server for Claude, Codex and any agent."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/PentaVM/editemos"
+readme = "README.md"
+keywords = ["video", "motion-graphics", "mcp", "kdenlive", "agents"]
+categories = ["command-line-utilities", "multimedia::video"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+regex = "1"
+url = "2"
+sha2 = "0.10"
+base64 = "0.22"
+scraper = "0.20"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+quick-xml = "0.36"
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+ureq = { version = "2", features = ["gzip", "json"] }
+
+[profile.dev]
+debug = false
+opt-level = 1
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 8
+strip = true

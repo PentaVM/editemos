@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>editemos studio</title>
+<style>
+:root{--ink:#0d0d0f;--panel:#16161a;--line:#2a2925;--paper:#efe8da;--muted:#a79f8e;--accent:#ff4d2e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:var(--paper);font:15px/1.45 Bahnschrift,"Segoe UI Variable","Inter",system-ui,sans-serif}
+header{display:flex;align-items:center;gap:18px;padding:18px 28px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--ink);z-index:5}
+header svg{width:38px;height:38px;flex:none}
+h1{font-size:22px;margin:0;font-weight:700;letter-spacing:-.01em}
+h1 small{color:var(--muted);font-weight:400;font-size:14px;margin-left:10px}
+.live{margin-left:auto;font:12px "Cascadia Mono",Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.live b{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:8px;vertical-align:1px}
+.live.off b{background:#555}
+select{background:var(--panel);color:var(--paper);border:1px solid var(--line);padding:6px 10px;font:inherit}
+main{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:0;min-height:calc(100vh - 76px)}
+section{padding:22px 28px;border-bottom:1px solid var(--line)}
+aside{border-left:1px solid var(--line)}
+h2{font:12px "Cascadia Mono",Consolas,monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin:0 0 14px;font-weight:400}
+h2 span{color:var(--muted);margin-left:8px}
+.swatches{display:flex;gap:10px;flex-wrap:wrap}
+.sw{width:84px}
+.sw i{display:block;height:54px;border:1px solid var(--line)}
+.sw b{display:block;font:11px "Cascadia Mono",Consolas,monospace;margin-top:6px;font-weight:400}
+.sw em{display:block;font-style:normal;color:var(--muted);font-size:12px}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:6px 14px;font-size:14px}
+.kv dt{color:var(--muted)}.kv dd{margin:0}
+.curve{display:inline-block;margin-right:14px;text-align:center;font:11px "Cascadia Mono",Consolas,monospace;color:var(--muted)}
+.curve svg{display:block;width:74px;height:74px;border:1px solid var(--line);margin-bottom:5px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.card{background:var(--panel);border:1px solid var(--line)}
+.card .media{aspect-ratio:16/9;background:#101013 repeating-conic-gradient(#19191d 0 25%,transparent 0 50%) 0 0/18px 18px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.card img,.card video{max-width:100%;max-height:100%;display:block}
+.card p{margin:0;padding:9px 11px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card p small{color:var(--muted);display:block;font:11px "Cascadia Mono",Consolas,monospace;margin-top:2px}
+.card.new{outline:2px solid var(--accent);outline-offset:-1px}
+.tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.tabs button{background:none;border:1px solid var(--line);color:var(--muted);padding:5px 12px;font:12px "Cascadia Mono",Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;cursor:pointer}
+.tabs button.on{color:var(--ink);background:var(--paper);border-color:var(--paper)}
+.mem{list-style:none;margin:0;padding:0}
+.mem li{padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
+.mem li small{display:block;font:11px "Cascadia Mono",Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:3px}
+.mem li.rejection small{color:#ff8a73}.mem li.decision small{color:#9fe0b4}
+form{display:grid;gap:8px;margin-bottom:14px}
+textarea,input{background:var(--panel);color:var(--paper);border:1px solid var(--line);padding:9px 10px;font:inherit;width:100%;resize:vertical}
+.row{display:flex;gap:8px}
+button.go{background:var(--accent);color:var(--ink);border:0;padding:9px 16px;font:inherit;font-weight:700;cursor:pointer}
+.empty{color:var(--muted);font-size:14px}
+ul.rules{margin:0;padding-left:18px;color:var(--muted);font-size:14px}
+@media(max-width:1000px){main{grid-template-columns:1fr}aside{border-left:0}}
+</style></head><body>
+<header>
+  <svg viewBox="0 0 128 128"><rect width="128" height="128" rx="30" fill="#1b1a18"/><path d="M22 70H80A29 29 0 1 0 72.4 89.6" fill="none" stroke="#efe8da" stroke-width="13"/><path d="M99 26V106" stroke="#ff4d2e" stroke-width="7"/><path d="M89 18H109V32L99 43L89 32Z" fill="#ff4d2e"/></svg>
+  <h1 id="title">editemos<small>studio</small></h1>
+  <select id="project" title="project"></select>
+  <div class="live" id="live"><b></b><span>live</span></div>
+</header>
+<main>
+  <div>
+    <section><h2>Brand <span id="brandsrc"></span></h2><div class="swatches" id="palette"></div></section>
+    <section><h2>Edit brand <span id="tempo"></span></h2>
+      <div id="curves"></div>
+      <dl class="kv" id="edit" style="margin-top:14px"></dl>
+      <ul class="rules" id="rules" style="margin-top:14px"></ul>
+    </section>
+    <section><h2>Library <span id="count"></span></h2>
+      <div class="tabs" id="tabs"></div>
+      <div class="grid" id="grid"></div>
+    </section>
+  </div>
+  <aside>
+    <section><h2>Tell it once</h2>
+      <form id="memform">
+        <textarea id="memtext" rows="3" placeholder="A decision, a preference or a rejection. It is remembered for every future session of this project."></textarea>
+        <div class="row"><select id="memkind"><option>decision</option><option>preference</option><option>rejection</option><option>note</option></select><button class="go">Remember</button></div>
+      </form>
+    </section>
+    <section><h2>Memory <span id="memcount"></span></h2><ul class="mem" id="mem"></ul></section>
+  </aside>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let version = '', project = new URLSearchParams(location.search).get('project') || '', tab = 'all', seen = new Set(), first = true;
+const q = (path) => path + (path.includes('?') ? '&' : '?') + 'project=' + encodeURIComponent(project);
+
+function curve(name, b) {
+  const p = (x, y) => `${(6 + x * 62).toFixed(1)},${(68 - y * 62).toFixed(1)}`;
+  return `<span class="curve"><svg viewBox="0 0 74 74"><path d="M${p(0, 0)} C${p(b[0], b[1])} ${p(b[2], b[3])} ${p(1, 1)}" fill="none" stroke="#ff4d2e" stroke-width="2.5"/></svg>${name}</span>`;
+}
+
+function render(s) {
+  document.title = s.project.name + ' - editemos studio';
+  $('#title').innerHTML = esc(s.project.name) + '<small>studio</small>';
+  $('#project').innerHTML = s.projects.map((p) => `<option value="${esc(p)}" ${p === s.project.slug ? 'selected' : ''}>${esc(p)}</option>`).join('');
+  project = s.project.slug;
+  const b = s.brand, e = b.edit || {};
+  $('#brandsrc').textContent = b.source_url || 'no website read yet';
+  $('#palette').innerHTML = (b.palette || []).map((c) => `<div class="sw"><i style="background:${esc(c.hex)}"></i><b>${esc(c.hex)}</b><em>${esc(c.role)}</em></div>`).join('') || '<p class="empty">Run <code>editemos extract &lt;url&gt;</code> to read the brand from its website.</p>';
+  $('#tempo').textContent = e.tempo || '';
+  $('#curves').innerHTML = e.easings ? Object.entries(e.easings).map(([k, v]) => curve(k, v)).join('') : '';
+  const tt = e.type_tokens || {};
+  $('#edit').innerHTML = [['durations', (e.durations || []).join(' / ') + ' frames @30'], ['stagger', (e.stagger_ms || 0) + ' ms'], ['hold', (e.hold_frames || 0) + ' frames'], ['transitions', (e.transitions || []).join(', ')], ['type', [tt.heading, tt.body].filter(Boolean).join(' + ')], ['fonts found', (b.fonts || []).map((f) => f.family + ' (' + f.role + ')').join(', ') || '-']].map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('');
+  $('#rules').innerHTML = (e.rules || []).map((r) => `<li>${esc(r)}</li>`).join('');
+
+  const kinds = ['all', ...new Set(s.items.map((i) => i.kind))];
+  $('#tabs').innerHTML = kinds.map((k) => `<button class="${k === tab ? 'on' : ''}" data-k="${esc(k)}">${esc(k)} ${k === 'all' ? s.items.length : s.items.filter((i) => i.kind === k).length}</button>`).join('');
+  const items = s.items.filter((i) => tab === 'all' || i.kind === tab);
+  $('#count').textContent = s.items.length + ' files';
+  $('#grid').innerHTML = items.map((i) => {
+    const fresh = !first && !seen.has(i.id);
+    const media = i.video ? `<video src="${esc(i.video)}" muted loop playsinline preload="metadata" ${i.poster ? `poster="${esc(i.poster)}"` : ''} onmouseenter="this.play()" onmouseleave="this.pause()" onclick="this.controls=true"></video>` : i.image ? `<img loading="lazy" src="${esc(i.image)}">` : `<span class="empty">${esc(i.ext || i.kind)}</span>`;
+    return `<div class="card ${fresh ? 'new' : ''}" title="${esc(i.path)}"><div class="media">${media}</div><p>${esc(i.label)}<small>${esc(i.kind)} ${esc(i.meta || '')}</small></p></div>`;
+  }).join('') || '<p class="empty">Nothing here yet. Renders, clips and extracted assets appear the moment they are made.</p>';
+  s.items.forEach((i) => seen.add(i.id));
+  first = false;
+
+  $('#memcount').textContent = s.memories.length;
+  $('#mem').innerHTML = s.memories.map((m) => `<li class="${esc(m.kind)}"><small>${esc(m.kind)} - ${esc((m.ts || '').slice(0, 10))} - ${esc(m.source || '')}</small>${esc(m.text)}</li>`).join('') || '<li class="empty">No memories yet.</li>';
+}
+
+async function refresh() {
+  const s = await (await fetch(q('/api/state'))).json();
+  version = s.version;
+  render(s);
+}
+async function tick() {
+  try {
+    const v = await (await fetch(q('/api/version'))).json();
+    $('#live').classList.remove('off');
+    if (v.version !== version) await refresh();
+  } catch (e) { $('#live').classList.add('off'); }
+  setTimeout(tick, 1000);
+}
+$('#tabs').addEventListener('click', (e) => { if (e.target.dataset.k) { tab = e.target.dataset.k; first = true; refresh(); } });
+$('#project').addEventListener('change', (e) => { project = e.target.value; first = true; seen.clear(); history.replaceState(null, '', '?project=' + encodeURIComponent(project)); refresh(); });
+$('#memform').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = $('#memtext').value.trim();
+  if (!text) return;
+  await fetch(q('/api/memory'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, kind: $('#memkind').value }) });
+  $('#memtext').value = '';
+  refresh();
+});
+refresh().then(tick);
+</script>
+</body></html>

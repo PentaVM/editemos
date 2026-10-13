@@ -1,0 +1,59 @@
+<div id="mark" class="abs"></div>
+<div id="ticks" class="abs"></div>
+<div id="rule" class="abs"></div>
+<div id="nmask" class="mask"><div id="name" class="h"></div></div>
+<div id="role" class="m abs"></div>
+</div>
+<script>
+/*PRELUDE*/
+// A measuring-tape lower third: a rule with ticks, the name rising from it.
+// No rounded box, no accent bar.
+const nm = String(P.name || P.text || 'Name Surname');
+const role = String(P.role || '');
+const size = 62 * S;
+const rightAlign = V === 2;
+const baseY = H - MY - 120 * S;
+const width = Math.min(W * 0.5, Math.max(360 * S, nm.length * size * 0.56));
+const x0 = rightAlign ? W - MX - width : MX;
+
+$('#name').textContent = nm;
+css($('#name'), { fontSize: size + 'px', lineHeight: size * 1.1 + 'px', color: 'var(--fg)', '--wght': W1, '--wdth': 92 });
+css($('#nmask'), { left: x0 + 26 * S + 'px', top: baseY - size * 1.18 + 'px', height: size * 1.12 + 'px', width: width + 'px' });
+css($('#rule'), { left: x0 + 'px', top: baseY + 'px', width: width + 'px', height: Math.max(2, 3 * S) + 'px', background: 'var(--fg)', transformOrigin: '0 50%' });
+css($('#mark'), { left: x0 + 'px', top: baseY - size * 1.12 + 'px', width: 12 * S + 'px', height: 12 * S + 'px', background: 'var(--accent)' });
+css($('#role'), { left: x0 + 26 * S + 'px', top: baseY + 16 * S + 'px', fontSize: 22 * S + 'px', color: 'var(--muted)' });
+$('#role').textContent = role;
+
+// ticks along the rule
+const nTicks = Math.floor(width / (22 * S));
+const ticks = [];
+for (let i = 0; i < nTicks; i++) {
+  const t = document.createElement('div');
+  const tall = i % 5 === 0;
+  css(t, { position: 'absolute', left: x0 + i * 22 * S + 'px', top: baseY - (tall ? 22 : 12) * S + 'px', width: Math.max(2, 2 * S) + 'px', height: (tall ? 22 : 12) * S + 'px', background: 'var(--muted)', opacity: 0 });
+  $('#ticks').appendChild(t);
+  ticks.push(t);
+}
+
+const t0 = D[0] * 0.7;
+const tl = Motion.timeline();
+tl.fromTo('#rule', { scaleX: 0 }, { scaleX: 1 }, { at: t0, dur: D[2], ease: E.travel });
+tl.fromTo('#mark', { scale: 0 }, { scale: 1 }, { at: t0, dur: D[1], ease: E.impact });
+tl.fromTo('#name', { yPercent: 110 }, { yPercent: 0 }, { at: t0 + D[0], dur: D[1], ease: E.enter });
+if (role) tl.fromTo('#role', { clipR: 100 }, { clipR: 0 }, { at: t0 + D[0] + D[1] * 0.7, dur: D[1], ease: E.enter });
+
+// ticks appear as hard events, stepped: "on twos" regardless of the project's fps
+const tickTl = Motion.timeline({ step: STEP || 1 / 15 });
+ticks.forEach((t, i) => tickTl.fromTo(t, { opacity: 0 }, { opacity: 1 }, { at: t0 + D[0] * 0.5 + i * (D[2] / nTicks), dur: 0, ease: 'hold' }));
+
+const hold = t0 + D[0] + D[1] + HOLD + (P.hold || D[3]);
+tl.to('#name', { yPercent: -110 }, { at: hold, dur: D[1] * 0.75, ease: E.exit });
+tl.to('#role', { clipL: 100 }, { at: hold, dur: D[1] * 0.6, ease: E.exit });
+tl.to('#rule', { scaleX: 0 }, { at: hold + D[0], dur: D[1] * 0.75, ease: E.exit });
+tl.to('#mark', { scale: 0 }, { at: hold + D[0], dur: D[0], ease: E.exit });
+ticks.forEach((t, i) => tickTl.fromTo(t, { opacity: 1 }, { opacity: 0 }, { at: hold + D[0] * 0.3 + (nTicks - i) * (D[1] * 0.5 / nTicks), dur: 0, ease: 'hold' }));
+
+const duration = P.duration || (hold + D[1] + D[0] + 0.2);
+Motion.mount([tl, tickTl], { duration, fps: FPS });
+</script>
+</body></html>

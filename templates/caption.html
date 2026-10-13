@@ -1,0 +1,37 @@
+<div id="cap" class="h abs"></div>
+<div id="bar" class="abs"></div>
+</div>
+<script>
+/*PRELUDE*/
+// One caption line. The active word is marked by a bar that moves with the voice;
+// nothing reflows and no word jumps in size or colour.
+const text = String(P.text || 'Say it once and mean it');
+const size = Math.min(H * 0.052, (W - 2 * MX) / Math.max(14, text.length * 0.6));
+const cap = $('#cap');
+cap.textContent = text;
+css(cap, { fontSize: size + 'px', lineHeight: size * 1.2 + 'px', color: 'var(--muted)', '--wght': Math.round((W0 + W1) / 2), '--wdth': 100, letterSpacing: '0.005em', textShadow: `0 0 ${Math.round(8 * S)}px var(--bg)` });
+const words = Motion.splitText('#cap', 'words');
+const lineW = cap.getBoundingClientRect().width;
+css(cap, { left: (W - lineW) / 2 + 'px', top: H - MY - size * 1.6 + 'px' });
+const bar = $('#bar');
+css(bar, { left: '0px', width: '1px', top: H - MY - size * 0.18 + 'px', height: Math.max(3, 4 * S) + 'px', background: 'var(--accent)', transformOrigin: '0 50%' });
+
+// timing: from params.cues [{t0,t1}] per word, or spread over the duration with a little breath
+const dur = P.duration || Math.max(1.2, words.length * 0.38);
+const cues = Array.isArray(P.cues) && P.cues.length === words.length
+  ? P.cues
+  : words.map((_, i) => ({ t0: dur * 0.08 + (i / words.length) * dur * 0.84, t1: dur * 0.08 + ((i + 1) / words.length) * dur * 0.84 }));
+const rects = words.map((w) => { const r = w.getBoundingClientRect(); return { x: r.left, w: r.width }; });
+
+const tl = Motion.timeline();
+tl.fromTo('#cap', { opacity: 0 }, { opacity: 1 }, { at: 0.04, dur: 0, ease: 'hold' });
+words.forEach((w, i) => {
+  const c = cues[i];
+  tl.fromTo(w, { color: C.muted }, { color: C.fg }, { at: c.t0, dur: 0, ease: 'hold' });
+  tl.fromTo('#bar', { x: rects[i].x, scaleX: 0.001 }, { x: rects[i].x, scaleX: rects[i].w }, { at: c.t0, dur: Math.min(D[0], c.t1 - c.t0), ease: E.impact });
+});
+tl.to('#cap', { opacity: 0 }, { at: dur - 0.04, dur: 0, ease: 'hold' });
+tl.to('#bar', { opacity: 0 }, { at: dur - 0.04, dur: 0, ease: 'hold' });
+Motion.mount(tl, { duration: dur, fps: FPS });
+</script>
+</body></html>

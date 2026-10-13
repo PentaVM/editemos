@@ -1,0 +1,37 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>editemos social card</title>
+<style>
+  html,body{margin:0;width:1280px;height:640px;overflow:hidden}
+  #card{position:absolute;inset:0;background:#0d0d0f;color:#efe8da;font-family:Bahnschrift,'Segoe UI Variable',sans-serif;overflow:hidden}
+  .mark{position:absolute;left:96px;top:96px;width:168px;height:168px}
+  .word{position:absolute;left:92px;top:292px;font-size:150px;line-height:1;letter-spacing:-0.025em;font-variation-settings:'wght' 700,'wdth' 88;white-space:nowrap}
+  .tag{position:absolute;left:98px;top:462px;font-size:38px;line-height:1.2;color:#a79f8e;font-variation-settings:'wght' 380,'wdth' 100}
+  .chips{position:absolute;left:98px;bottom:62px;font-family:'Cascadia Mono',Consolas,monospace;font-size:19px;letter-spacing:.16em;color:#ff4d2e;text-transform:uppercase;white-space:nowrap}
+  .head{position:absolute;top:0;bottom:0;left:1012px;width:6px;background:#ff4d2e}
+  .flag{position:absolute;top:0;left:1002px}
+  .ticks{position:absolute;left:0;top:0;width:1280px;height:64px}
+  .code{position:absolute;left:1036px;top:22px;font-family:'Cascadia Mono',Consolas,monospace;font-size:20px;color:#efe8da;letter-spacing:.08em}
+</style></head><body>
+<div id="card">
+  <svg class="ticks" viewBox="0 0 1280 64">
+    <g stroke="#3a3833" stroke-width="2">
+      <path d="M692 64V44M732 64V50M772 64V44M812 64V50M852 64V44M892 64V50M932 64V44M972 64V50M1052 64V50M1092 64V44M1132 64V50M1172 64V44M1212 64V50M1252 64V44"/>
+    </g>
+  </svg>
+  <div class="head"></div>
+  <svg class="flag" width="26" height="40" viewBox="0 0 26 40"><path d="M0 0H26V18L13 32L0 18Z" fill="#ff4d2e"/></svg>
+  <div class="code">00:00:04:12</div>
+  <svg class="mark" viewBox="0 0 128 128">
+    <rect width="128" height="128" rx="30" fill="#1b1a18"/>
+    <path d="M22 70H80A29 29 0 1 0 72.4 89.6" fill="none" stroke="#efe8da" stroke-width="13"/>
+    <path d="M99 26V106" stroke="#ff4d2e" stroke-width="7"/>
+    <path d="M89 18H109V32L99 43L89 32Z" fill="#ff4d2e"/>
+  </svg>
+  <div class="word">editemos</div>
+  <div class="tag">Every video gets its own edit brand.</div>
+  <div class="chips">MCP · Rust · Kdenlive · motion graphics · memory</div>
+</div>
+<script>
+  Motion.mount(Motion.timeline(), { duration: 1, fps: 30 });
+</script>
+</body></html>

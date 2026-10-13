@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="editemos">
+  <title>editemos</title>
+  <rect width="128" height="128" rx="30" fill="#0d0d0f"/>
+  <!-- the letter e: a frame bar and an open ring -->
+  <path d="M22 70H80A29 29 0 1 0 72.4 89.6" fill="none" stroke="#efe8da" stroke-width="13" stroke-linecap="butt"/>
+  <!-- the playhead: the cut that makes every edit different -->
+  <path d="M99 26V106" stroke="#ff4d2e" stroke-width="7" stroke-linecap="butt"/>
+  <path d="M89 18H109V32L99 43L89 32Z" fill="#ff4d2e"/>
+</svg>

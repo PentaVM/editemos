@@ -1,0 +1,62 @@
+<div id="quote" class="h abs"></div>
+<div id="under" class="abs"></div>
+<div id="author" class="m abs"></div>
+</div>
+<script>
+/*PRELUDE*/
+// A quote that lands word by word as hard cuts, with one word given the weight.
+const text = String(P.text || 'Say the thing once, and mean it.');
+const author = String(P.author || P.by || '');
+const left = V === 2 ? W * 0.22 : MX;
+const y0 = V === 1 ? MY * 1.6 : H * 0.26;
+// fit: each character takes about 0.56 em^2; let the text fill ~60% of a box that is
+// half the frame tall, then keep the size between 5% and 12% of the frame height
+const boxW = W - left - MX, boxH = H * 0.5;
+const size = Math.max(H * 0.05, Math.min(H * 0.12, Math.sqrt((boxW * boxH * 0.6) / (Math.max(8, text.length) * 0.56))));
+
+const q = $('#quote');
+q.style.whiteSpace = 'normal';
+css(q, { left: left + 'px', top: y0 + 'px', width: W - left - MX + 'px', fontSize: size + 'px', lineHeight: size * 1.12 + 'px', letterSpacing: -size * 0.02 + 'px', '--wght': Math.round((W0 + W1) / 2), '--wdth': 92 });
+q.textContent = text;
+const words = Motion.splitText('#quote', 'words');
+
+// emphasis: an explicit *starred* word in params.emphasis, else the longest word
+const clean = (w) => w.textContent.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+let empIdx = P.emphasis ? words.findIndex((w) => clean(w) === String(P.emphasis).toLowerCase()) : -1;
+if (empIdx < 0) empIdx = words.reduce((best, w, i) => (clean(w).length > clean(words[best]).length ? i : best), 0);
+
+const tl = Motion.timeline();
+const t0 = D[0];
+let t = t0;
+words.forEach((w, i) => {
+  // tempo of the speech: a little irregular, never a metronome
+  const gap = D[0] * (0.9 + 0.5 * R());
+  tl.fromTo(w, { opacity: 0 }, { opacity: 1 }, { at: t, dur: 0, ease: 'hold' });
+  if (i === empIdx) {
+    tl.fromTo(w, { scale: 1.32, '--wght': W1 }, { scale: 1 }, { at: t, dur: D[1], ease: E.impact });
+    w.style.color = 'var(--accent)';
+    w.style.transformOrigin = '0 70%';
+  }
+  t += gap + (i === empIdx ? HOLD * 0.6 : 0);
+});
+
+// underline under the emphasised word (measured once, after layout)
+const er = words[empIdx].getBoundingClientRect();
+const u = $('#under');
+css(u, { left: er.left + 'px', top: er.bottom - size * 0.08 + 'px', width: er.width + 'px', height: Math.max(3, 5 * S) + 'px', background: 'var(--accent)', transformOrigin: '0 50%' });
+const empAt = t0 + words.slice(0, empIdx).reduce((s) => s + D[0] * 1.15, 0);
+tl.fromTo('#under', { scaleX: 0 }, { scaleX: 1 }, { at: Math.max(t - D[0], empAt + D[1] * 0.6), dur: D[2], ease: E.travel });
+
+if (author) {
+  css($('#author'), { left: left + 'px', top: q.getBoundingClientRect().bottom + size * 0.45 + 'px', fontSize: 24 * S + 'px', color: 'var(--muted)' });
+  $('#author').textContent = author;
+  tl.fromTo('#author', { opacity: 0 }, { opacity: 1 }, { at: t + HOLD, dur: 0, ease: 'hold' });
+}
+const outAt = t + HOLD + D[3] * 0.8;
+tl.to('#quote', { clipR: 100 }, { at: outAt, dur: D[1] * 0.75, ease: E.exit });
+tl.to('#under', { scaleX: 0 }, { at: outAt, dur: D[1] * 0.6, ease: E.exit });
+if (author) tl.set('#author', { opacity: 0 }, outAt + D[0]);
+
+Motion.mount(tl, { duration: P.duration || outAt + D[1] + 0.2, fps: FPS });
+</script>
+</body></html>

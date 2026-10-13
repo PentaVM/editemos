@@ -1,0 +1,49 @@
+<svg id="svg" class="abs" style="left:0;top:0" width="__W__" height="__H__" viewBox="0 0 __W__ __H__">
+  <line id="leader" stroke-linecap="butt"></line>
+  <circle id="dot" fill="none"></circle>
+  <circle id="core"></circle>
+</svg>
+<div id="lmask" class="mask"><div id="label" class="m"></div></div>
+</div>
+<script>
+/*PRELUDE*/
+// A callout that points at a place in the frame. Coordinates are fractions of the frame.
+const label = String(P.text || 'Look here');
+const tx = (P.x ?? 0.62) * W, ty = (P.y ?? 0.42) * H;          // the point being called out
+const lx = (P.lx ?? (P.x ?? 0.62) + 0.14) * W, ly = (P.ly ?? (P.y ?? 0.42) - 0.16) * H;   // label anchor
+const fsz = 30 * S;
+
+const line = $('#leader'), dot = $('#dot'), core = $('#core');
+const elbow = { x: lx, y: ty };                                   // leader goes: label -> elbow -> point
+const len = Math.hypot(lx - elbow.x, ly - elbow.y) + Math.hypot(elbow.x - tx, elbow.y - ty);
+// draw as a single polyline path using stroke-dash on a path instead of a line
+const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+path.setAttribute('d', `M ${lx} ${ly + 6 * S} L ${elbow.x} ${elbow.y} L ${tx + (lx > tx ? 18 * S : -18 * S)} ${ty}`);
+path.setAttribute('fill', 'none'); path.setAttribute('stroke', C.accent); path.setAttribute('stroke-width', Math.max(2, 3 * S));
+path.setAttribute('stroke-dasharray', String(len + 40)); path.setAttribute('stroke-dashoffset', String(len + 40));
+line.replaceWith(path);
+dot.setAttribute('cx', tx); dot.setAttribute('cy', ty); dot.setAttribute('r', 16 * S); dot.setAttribute('stroke', C.accent); dot.setAttribute('stroke-width', Math.max(2, 3 * S));
+core.setAttribute('cx', tx); core.setAttribute('cy', ty); core.setAttribute('r', 5 * S); core.setAttribute('fill', C.accent);
+
+const right = lx < W * 0.5 ? false : true;
+css($('#lmask'), { left: (right ? lx - 14 * S - fsz * label.length * 0.66 : lx + 14 * S) + 'px', top: ly - fsz * 1.35 + 'px', height: fsz * 1.5 + 'px', width: fsz * label.length * 0.7 + 'px' });
+css($('#label'), { fontSize: fsz + 'px', lineHeight: fsz * 1.4 + 'px', color: 'var(--fg)', textAlign: right ? 'right' : 'left', letterSpacing: '.1em' });
+$('#label').textContent = label;
+
+const tl = Motion.timeline();
+const t0 = D[0] * 0.7;
+tl.fromTo('#core', { scale: 0 }, { scale: 1 }, { at: t0, dur: D[1], ease: E.impact });
+core.style.transformOrigin = `${tx}px ${ty}px`; dot.style.transformOrigin = `${tx}px ${ty}px`;
+tl.fromTo('#dot', { scale: 0, opacity: 1 }, { scale: 1 }, { at: t0 + D[0] * 0.5, dur: D[2], ease: E.impact });
+tl.fromTo(path, { 'attr:stroke-dashoffset': len + 40 }, { 'attr:stroke-dashoffset': 0 }, { at: t0 + D[0], dur: D[2], ease: E.travel });
+tl.fromTo('#label', { yPercent: 110 }, { yPercent: 0 }, { at: t0 + D[0] + D[2] * 0.55, dur: D[1], ease: E.enter });
+
+const outAt = t0 + D[0] + D[2] + D[1] + HOLD + D[3];
+tl.to(path, { 'attr:stroke-dashoffset': -(len + 40) }, { at: outAt, dur: D[2] * 0.75, ease: E.exit });
+tl.to('#label', { yPercent: -110 }, { at: outAt, dur: D[1] * 0.75, ease: E.exit });
+tl.to('#dot', { scale: 0 }, { at: outAt + D[0], dur: D[1] * 0.75, ease: E.exit });
+tl.to('#core', { scale: 0 }, { at: outAt + D[0], dur: D[1] * 0.75, ease: E.exit });
+
+Motion.mount(tl, { duration: P.duration || outAt + D[2] + 0.2, fps: FPS });
+</script>
+</body></html>

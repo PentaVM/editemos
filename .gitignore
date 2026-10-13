@@ -1,0 +1,11 @@
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# local work
+/tmp/
+/out/
+*.mov
+*.webm
+*.contact.png
+.editemos/

@@ -1,0 +1,33 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, ext: "" }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, ext: ".exe" }
+          - { os: macos-latest, target: aarch64-apple-darwin, ext: "" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/editemos${{ matrix.ext }}" "dist/editemos-${{ matrix.target }}${{ matrix.ext }}"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

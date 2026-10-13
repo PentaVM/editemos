@@ -1,0 +1,50 @@
+<div id="mask" class="mask"><div id="word" class="h"></div></div>
+<div id="rule" class="abs"></div>
+<div id="kicker" class="m abs"></div>
+<div id="blade" class="abs"></div>
+</div>
+<script>
+/*PRELUDE*/
+const text = String(P.text || 'Title');
+const kicker = String(P.kicker || '');
+const size = Math.min(H * 0.26, (W - 2 * MX) / Math.max(4, text.length * 0.58));
+const align = V === 2 ? 'right' : 'left';
+const y0 = V === 1 ? MY : H - MY - size * 1.15 - 56 * S;
+
+$('#word').textContent = text;
+css($('#word'), { fontSize: size + 'px', lineHeight: size * 1.08 + 'px', letterSpacing: -size * 0.025 + 'px', color: 'var(--fg)' });
+css($('#mask'), { top: y0 + 'px', height: size * 1.12 + 'px', [align]: MX + 'px' });
+css($('#rule'), { top: y0 + size * 1.14 + 'px', height: Math.max(3, 5 * S) + 'px', width: Math.min(W - 2 * MX, size * text.length * 0.5) + 'px', background: 'var(--accent)', [align]: MX + 'px', transformOrigin: align === 'left' ? '0 50%' : '100% 50%' });
+css($('#kicker'), { top: y0 + size * 1.14 + 18 * S + 'px', fontSize: 26 * S + 'px', color: 'var(--muted)', [align]: MX + 'px' });
+$('#kicker').textContent = kicker;
+css($('#blade'), { top: y0 - 40 * S + 'px', left: '-80px', width: 10 * S + 'px', height: size * 1.4 + 'px', background: 'var(--accent2)', transform: 'skewX(-18deg)' });
+
+const letters = Motion.splitText('#word', 'chars');
+const t0 = D[0] * 0.8;
+const tl = Motion.timeline();
+tl.fromTo('#rule', { scaleX: 0 }, { scaleX: 1 }, { at: t0, dur: D[2], ease: E.travel });
+tl.fromTo(letters, { yPercent: 118, rotate: (V === 1 ? -6 : 6) }, { yPercent: 0, rotate: 0 },
+  { at: t0 + D[0], dur: D[1], ease: E.enter, stagger: ST, staggerShrink: SHRINK });
+// the face changes while it lands: light and narrow -> heavy and wide
+tl.fromTo('#word', { '--wght': W0, '--wdth': 76 }, { '--wght': W1, '--wdth': 100 }, { at: t0 + D[0], dur: D[3], ease: E.travel });
+
+const enterEnd = t0 + D[0] + D[1] + ST * letters.length * 0.5;
+if (kicker) {
+  if (TEMPO === 'punchy') tl.fromTo('#kicker', { opacity: 0 }, { opacity: 1 }, { at: enterEnd, dur: 0, ease: 'hold' });
+  else tl.fromTo('#kicker', { clipR: 100 }, { clipR: 0 }, { at: enterEnd, dur: D[1], ease: E.enter });
+}
+
+// stillness, then out (exit is ~75% of the entry)
+const exitAt = enterEnd + HOLD + D[2];
+tl.to(letters, { yPercent: -118, rotate: (V === 1 ? 4 : -4) }, { at: exitAt, dur: D[1] * 0.75, ease: E.exit, stagger: ST * 0.8, staggerFrom: 'end', staggerShrink: SHRINK });
+tl.to('#rule', { scaleX: 0 }, { at: exitAt + D[0], dur: D[1] * 0.75, ease: E.exit });
+if (kicker) tl.set('#kicker', { opacity: 0 }, exitAt + D[0]);
+
+const bladeTl = Motion.timeline({ step: STEP || 0 });
+if (TEMPO === 'punchy' || STEP) {
+  bladeTl.fromTo('#blade', { x: 0 }, { x: W + 200 }, { at: t0 + D[0] + D[1] * 0.9, dur: D[2] * 0.7, ease: E.exit });
+}
+const duration = P.duration || (exitAt + D[1] * 0.75 + D[0] + 0.25);
+Motion.mount([tl, bladeTl], { duration, fps: FPS });
+</script>
+</body></html>
