@@ -474,6 +474,148 @@ pub fn storyboard(ffmpeg: &Path, src: &Path, from: f64, to: f64, cols: u32, rows
     Ok((0..n).map(|i| ((from + dur * (i as f64 + 0.5) / n as f64) * 10.0).round() / 10.0).collect())
 }
 
+/// A part of the frame as fractions of its size: x, y, width, height.
+pub type Region = (f64, f64, f64, f64);
+
+/// Several regions separated by ';' (one per team's score).
+pub fn parse_regions(s: &str) -> Option<Vec<Region>> {
+    let v: Vec<Region> = s.split(';').filter(|x| !x.trim().is_empty()).map(parse_region).collect::<Option<Vec<_>>>()?;
+    (!v.is_empty()).then_some(v)
+}
+
+pub fn parse_region(s: &str) -> Option<Region> {
+    let v: Vec<f64> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+    (v.len() == 4 && v.iter().all(|x| (0.0..=1.0).contains(x)) && v[2] > 0.0 && v[3] > 0.0 && v[0] + v[2] <= 1.0001 && v[1] + v[3] <= 1.0001).then(|| (v[0], v[1], v[2], v[3]))
+}
+
+/// A small grey frame with its brightness and contrast taken out: what is left is the
+/// shape (a digit), so a pause menu dimming the screen or a glow is not a change.
+fn normalise(f: &[u8]) -> Vec<f32> {
+    let n = f.len().max(1) as f32;
+    let mean = f.iter().map(|v| *v as f32).sum::<f32>() / n;
+    let sd = (f.iter().map(|v| (*v as f32 - mean).powi(2)).sum::<f32>() / n).sqrt();
+    let sd = if sd < 1.0 { 1.0 } else { sd };
+    f.iter().map(|v| (*v as f32 - mean) / sd).collect()
+}
+
+fn shape_diff(a: &[f32], b: &[f32]) -> f64 {
+    a.iter().zip(b).map(|(x, y)| (x - y).abs() as f64).sum::<f64>() / a.len().max(1) as f64
+}
+
+fn mean_frame(frames: &[Vec<f32>]) -> Vec<f32> {
+    let mut out = vec![0f32; frames.first().map(|f| f.len()).unwrap_or(0)];
+    for f in frames {
+        for (o, v) in out.iter_mut().zip(f) {
+            *o += v / frames.len() as f32;
+        }
+    }
+    out
+}
+
+/// Where a region that normally holds still changes and then holds still again: a
+/// scoreboard taking a new score, a kill counter, a round number. `frames` are small
+/// grey crops sampled `fps` times a second starting at `from`. Only the shape counts
+/// (each crop is normalised), so a pause menu or a glow is not a change. Scoreboards
+/// animate a new score for a few seconds, so the 2 s before a change are compared with
+/// the 2 s that start 3 s after it, and both must have been calm: a flash or a replay
+/// wipe that returns to the old picture is not a goal.
+pub fn stable_changes(frames: &[Vec<u8>], fps: f64, from: f64) -> Vec<f64> {
+    let z: Vec<Vec<f32>> = frames.iter().map(|f| normalise(f)).collect();
+    let w = (2.0 * fps).round().max(2.0) as usize;
+    let settle = (3.0 * fps).round().max(2.0) as usize;
+    if z.len() < 2 * w + settle + 1 {
+        return Vec::new();
+    }
+    let diffs: Vec<f64> = z.windows(2).map(|p| shape_diff(&p[0], &p[1])).collect();
+    let mut sorted = diffs.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let noise = sorted[sorted.len() / 2];
+    let threshold = (noise * 4.0).max(0.2);
+    let calm = |m: &[f32], range: std::ops::Range<usize>| range.into_iter().all(|j| shape_diff(&z[j], m) <= 1.5 * threshold);
+    let mut out: Vec<f64> = Vec::new();
+    let mut k = w - 1;
+    while k + 1 + settle + w <= z.len() {
+        // frame k+1 is the first that looks different
+        if diffs[k] < threshold {
+            k += 1;
+            continue;
+        }
+        let before = mean_frame(&z[k + 1 - w..k + 1]);
+        let after = mean_frame(&z[k + 1 + settle..k + 1 + settle + w]);
+        if shape_diff(&before, &after) >= threshold && calm(&before, k + 1 - w..k + 1) && calm(&after, k + 1 + settle..k + 1 + settle + w) {
+            let t = ((from + (k + 1) as f64 / fps) * 10.0).round() / 10.0;
+            if out.last().map(|l| t - l > 3.0).unwrap_or(true) {
+                out.push(t);
+            }
+            k += 1 + settle;
+        } else {
+            k += 1;
+        }
+    }
+    out
+}
+
+/// Changes in several regions at once (one per team's score). A change that shows up in
+/// two regions within 1.5 s is the whole screen changing (a menu, a replay, the end of
+/// the match), not a goal: those are returned apart. Returns (region index, time) pairs
+/// in time order, and the times dropped as screen-wide.
+pub fn score_changes(per_region: &[Vec<f64>]) -> (Vec<(usize, f64)>, Vec<f64>) {
+    let mut kept = Vec::new();
+    let mut together = Vec::new();
+    for (i, list) in per_region.iter().enumerate() {
+        for t in list {
+            let elsewhere = per_region.iter().enumerate().any(|(j, other)| j != i && other.iter().any(|o| (o - t).abs() <= 1.5));
+            if elsewhere {
+                if !together.iter().any(|x: &f64| (x - t).abs() <= 1.5) {
+                    together.push(*t);
+                }
+            } else {
+                kept.push((i, *t));
+            }
+        }
+    }
+    kept.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    together.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    (kept, together)
+}
+
+/// Sample a region of the picture between two times and find where it changes for good.
+pub fn region_changes(ffmpeg: &Path, src: &Path, from: f64, to: f64, r: Region) -> Result<Vec<f64>> {
+    let fps = 2.0;
+    let (gw, gh) = (48usize, 24usize);
+    let out = Command::new(ffmpeg)
+        .args(["-hide_banner", "-loglevel", "error", "-ss", &format!("{from:.2}"), "-t", &format!("{:.2}", (to - from).max(1.0)), "-an", "-i"])
+        .arg(src)
+        .args(["-vf", &format!("fps={fps},crop=iw*{:.4}:ih*{:.4}:iw*{:.4}:ih*{:.4},scale={gw}:{gh}:flags=area,format=gray", r.2, r.3, r.0, r.1), "-f", "rawvideo", "-"])
+        .stdin(Stdio::null())
+        .output()?;
+    if !out.status.success() {
+        return fail(format!("could not read the region: {}", crate::util::truncate_chars(String::from_utf8_lossy(&out.stderr).trim(), 200)));
+    }
+    let frames: Vec<Vec<u8>> = out.stdout.chunks_exact(gw * gh).map(|c| c.to_vec()).collect();
+    Ok(stable_changes(&frames, fps, from))
+}
+
+/// One frame with the region drawn on it, so whoever chose the region can check it.
+pub fn region_preview(ffmpeg: &Path, src: &Path, at: f64, regions: &[Region], out: &Path) -> Result<()> {
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let boxes: Vec<String> = regions.iter().map(|r| format!("drawbox=x=iw*{:.4}:y=ih*{:.4}:w=iw*{:.4}:h=ih*{:.4}:color=red@0.9:t=3", r.0, r.1, r.2, r.3)).collect();
+    let ok = Command::new(ffmpeg)
+        .args(["-hide_banner", "-loglevel", "error", "-y", "-ss", &format!("{at:.2}"), "-i"])
+        .arg(src)
+        .args(["-frames:v", "1", "-vf", &format!("{},scale=960:-2", boxes.join(","))])
+        .arg(out)
+        .stdin(Stdio::null())
+        .status()?
+        .success();
+    if !ok {
+        return fail("could not draw the region preview");
+    }
+    Ok(())
+}
+
 const HYPE: &[&str] = &[
     "wow",
     "omg",
@@ -781,6 +923,33 @@ mod tests {
         assert_eq!(parse_transcript(vtt)[0].end, 4.0);
         let cut = slice_srt(&c, 59.0, 70.0);
         assert!(cut.contains("00:00:01,000 --> 00:00:03,000") && cut.contains("No puede ser"));
+    }
+
+    #[test]
+    fn a_score_change_is_found_and_a_flash_is_not() {
+        // two "digits": bright left half, and bright top half; `gain` dims or brightens
+        let zero = |gain: f32| (0..48 * 24).map(|i| if i % 48 < 24 { (200.0 * gain) as u8 } else { (40.0 * gain) as u8 }).collect::<Vec<u8>>();
+        let one = |gain: f32| (0..48 * 24).map(|i| if i / 48 < 12 { (200.0 * gain) as u8 } else { (40.0 * gain) as u8 }).collect::<Vec<u8>>();
+        let mut frames: Vec<Vec<u8>> = Vec::new();
+        // "0", a one-sample flash, a pause menu dimming everything for 4 s, "0" again,
+        // then "1" that pops and glows for a second before it settles
+        frames.extend((0..20).map(|_| zero(1.0)));
+        frames.push(one(1.25));
+        frames.extend((0..8).map(|_| zero(0.3)));
+        frames.extend((0..10).map(|_| zero(1.0)));
+        frames.push(zero(1.2));
+        frames.push(one(1.2));
+        frames.push(one(0.8));
+        frames.extend((0..14).map(|_| one(1.0)));
+        let ch = stable_changes(&frames, 2.0, 100.0);
+        assert_eq!(ch, vec![120.0], "only the change of digit: {ch:?}");
+        assert!(stable_changes(&(0..30).map(|_| zero(1.0)).collect::<Vec<_>>(), 2.0, 0.0).is_empty());
+        // both teams' boxes changing together is the screen, not a goal
+        let (kept, together) = score_changes(&[vec![120.0, 300.0], vec![200.0, 300.8]]);
+        assert_eq!(kept, vec![(0, 120.0), (1, 200.0)]);
+        assert_eq!(together.len(), 1);
+        assert_eq!(parse_region("0.45,0,0.1,0.05"), Some((0.45, 0.0, 0.1, 0.05)));
+        assert_eq!(parse_region("0.95,0,0.1,0.05"), None, "outside the frame");
     }
 
     #[test]

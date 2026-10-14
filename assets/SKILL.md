@@ -86,6 +86,17 @@ You have the `editemos_*` MCP tools. If they are not connected, the same operati
   A highlight is build-up, moment and aftermath, so start before the rise and keep the reaction
   or replay; use `label` on segments to carry context the picture shows (score, clock, who).
   `action=highlights` does a first pass automatically.
+  - **In a game the payoff is the outcome.** `action=score region=x,y,w,h` (fractions of the
+    frame, around the score digits, never the clock) returns every time the score changed:
+    those are the goals. Build each clip around them: the play that led to it, the goal, the
+    celebration or replay. A segment that ends while the player is still driving at the ball
+    is the worst cut there is (the viewer waits and never sees what happened); pass
+    `score_region` to `build` and such edges are flagged. Rotations and driving around the map
+    are not highlights. If the stream has no goal, look for saves, demolitions, aerials, a
+    near miss, and show the outcome of each.
+  - Mark each impact in its segment (`hits: [seconds]`: the shot, the goal, the save): it gets
+    a punch-in, a shake, a flash and an impact sound. Jumps between plays get a zoom-through
+    with motion blur and a whoosh (`transition=zoom|whip`); the old dip to black is opt-in.
 - **Check the cut before you show it.** Every build returns a review sheet per clip: one row per
   segment, and the two frames on each side are what you LEFT OUT just before and just after. Look
   at it. If those frames show the set-up (who had the ball, the score before, the question) or

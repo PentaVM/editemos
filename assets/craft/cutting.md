@@ -53,8 +53,15 @@ see next, and when are they ready for it?
 
 Dissolves mean time passing or a change of place; fades mean an ending. Never use a
 transition to hide a bad cut. Between two pieces of the same continuous footage, use
-nothing: a dip or flash there reads as a mistake. Between unrelated moments, a short dip
-(6-10 frames) or a sound bridge tells the viewer "elsewhere".
+nothing: a dip or flash there reads as a mistake.
+
+Between unrelated moments in fast content (gaming, sport, creators), carry the motion across
+the cut instead of stopping it: a **zoom-through** (the end of shot A punches in fast, shot B
+starts zoomed and settles) or a **whip** (a fast lateral move with directional blur), each
+about 6 frames, with motion blur only on those frames and a whoosh centred on the cut. Mark
+impacts inside a shot with a short punch-in, a decaying shake and a one- or two-frame flash.
+A dip to black between plays reads as a slideshow; keep it for documentary or calm edits,
+where a dissolve or a sound bridge also tells the viewer "elsewhere".
 
 ## Pacing
 
