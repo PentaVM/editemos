@@ -25,7 +25,7 @@ $('#sub').textContent = sub;
 
 const tl = Motion.timeline();
 const t0 = D[0] * 0.6;
-tl.fromTo('#vrule', { scaleY: 0 }, { scaleY: 1 }, { at: t0, dur: D[3], ease: E.travel });
+tl.fromTo('#vrule', { scaleY: 0 }, { scaleY: 1 }, { at: t0, dur: D[3], ease: E.travel, sfx: SND('whoosh', { gain: 0.5, dur: D[3] }) });
 // the counter climbs in whole numbers; the last step lands on the impact curve
 const countDur = D[2] + D[1];
 tl.call((t) => {
@@ -34,7 +34,7 @@ tl.call((t) => {
   num.textContent = String(Math.round(target * eased)).padStart(2, '0');
 });
 tl.fromTo('#num', { x: -30 * S }, { x: 0 }, { at: t0 + D[0], dur: countDur, ease: E.travel });
-tl.fromTo('#title', { yPercent: 120 }, { yPercent: 0 }, { at: t0 + D[0] + countDur * 0.7, dur: D[1], ease: E.enter });
+tl.fromTo('#title', { yPercent: 120 }, { yPercent: 0 }, { at: t0 + D[0] + countDur * 0.7, dur: D[1], ease: E.enter, sfx: SND('thud', { at: 'end', gain: 0.8 }) });
 if (sub) tl.fromTo('#sub', { clipR: 100 }, { clipR: 0 }, { at: t0 + D[0] + countDur, dur: D[1], ease: E.enter });
 
 const outAt = t0 + D[0] + countDur + D[1] + HOLD + D[3] * 0.6;
