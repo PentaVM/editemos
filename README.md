@@ -376,6 +376,9 @@ again. Alongside it come **checks** from the sound (a peak right after a cut, a 
 halfway). The builder also does two things on its own: edges within half a second of a change
 of shot are moved onto it, so no stray frames of the previous shot flash by, and a jump between
 scenes gets a short dip (`--transition dip|flash|cut`) while continuous footage is left alone.
+Every clip is delivered at -14 LUFS with peaks under -1.5 dBFS (measured, then the missing gain
+and a limiter), so a quiet stream does not arrive as a whisper next to everything else on the
+platform; the build reports the loudness before and after.
 
 ### Typefaces, chosen and remembered
 

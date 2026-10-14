@@ -131,6 +131,53 @@ pub struct Built {
     pub notes: Vec<String>,
     /// The segments as they were finally cut, in source time.
     pub cut: Vec<(f64, f64)>,
+    /// Integrated loudness as delivered (LUFS), and what it was before.
+    pub loudness: Option<f64>,
+    pub loudness_before: Option<f64>,
+}
+
+/// Bring a finished clip to `LOUDNESS_LUFS`: measure it, add the gain it is missing and
+/// let a limiter hold the peaks under -1.5 dBFS. A single-pass loudnorm cannot lift a
+/// quiet stream that far, so the gain is computed from the measurement instead. The
+/// picture is copied, not encoded again. Returns (before, after).
+pub fn deliver_loudness(ffmpeg: &Path, file: &Path) -> Result<(Option<f64>, Option<f64>)> {
+    let Some(before) = crate::reference::loudness(ffmpeg, file).integrated_lufs.filter(|i| i.is_finite() && *i > -69.0) else {
+        return Ok((None, None));
+    };
+    let gain = LOUDNESS_LUFS - before;
+    if gain.abs() < 0.5 {
+        return Ok((Some(before), Some(before)));
+    }
+    let tmp = file.with_extension("loud.mp4");
+    let r = Command::new(ffmpeg)
+        .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+        .arg(file)
+        .args([
+            "-map",
+            "0:v",
+            "-map",
+            "0:a",
+            "-c:v",
+            "copy",
+            "-af",
+            &format!("volume={gain:.2}dB,alimiter=limit=0.84:level=0"),
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-movflags",
+            "+faststart",
+        ])
+        .arg(&tmp)
+        .stdin(Stdio::null())
+        .output()?;
+    if !r.status.success() {
+        let _ = std::fs::remove_file(&tmp);
+        return fail(format!("could not set the loudness: {}", crate::util::truncate_chars(String::from_utf8_lossy(&r.stderr).trim(), 300)));
+    }
+    std::fs::rename(&tmp, file)?;
+    let after = crate::reference::loudness(ffmpeg, file).integrated_lufs;
+    Ok((Some(before), after))
 }
 
 /* ------------------------------ planning helpers ------------------------------ */
@@ -296,6 +343,9 @@ pub fn caption_lines(words: &[Word], per_line: usize) -> Vec<Vec<Word>> {
     }
     lines
 }
+
+/// Integrated loudness every story clip is delivered at (streaming platforms normalise near it).
+pub const LOUDNESS_LUFS: f64 = -14.0;
 
 pub struct Overlay {
     pub start: f64,
@@ -656,7 +706,11 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
     if !r.status.success() {
         return fail(format!("ffmpeg could not render the story: {}", crate::util::truncate_chars(String::from_utf8_lossy(&r.stderr).trim(), 500)));
     }
+    // platforms play everything near -14 LUFS: a quiet stream must not arrive as a whisper
+    let (loudness_before, loudness) = deliver_loudness(&ffmpeg, &abs_out)?;
     Ok(Built {
+        loudness,
+        loudness_before,
         out: path_str(&abs_out),
         duration: (total * 100.0).round() / 100.0,
         pieces: n,

@@ -7,7 +7,7 @@ use serde_json::json;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-fn make_video(ffmpeg: &Path, out: &Path, shots: &[(&str, f64)]) {
+fn make_video(ffmpeg: &Path, out: &Path, shots: &[(&str, f64)], gain: f64) {
     let mut cmd = Command::new(ffmpeg);
     cmd.args(["-hide_banner", "-loglevel", "error", "-y"]);
     for (c, d) in shots {
@@ -16,7 +16,7 @@ fn make_video(ffmpeg: &Path, out: &Path, shots: &[(&str, f64)]) {
     let total: f64 = shots.iter().map(|s| s.1).sum();
     cmd.args(["-f", "lavfi", "-i", &format!("sine=f=440:d={total}")]);
     let inputs: String = (0..shots.len()).map(|i| format!("[{i}:v]")).collect();
-    cmd.args(["-filter_complex", &format!("{inputs}concat=n={}:v=1:a=0[v]", shots.len()), "-map", "[v]", "-map", &format!("{}:a", shots.len())]);
+    cmd.args(["-filter_complex", &format!("{inputs}concat=n={}:v=1:a=0[v];[{}:a]volume={gain}[a]", shots.len(), shots.len()), "-map", "[v]", "-map", "[a]"]);
     cmd.args(["-c:v", "mpeg4", "-q:v", "3", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"]).arg(out);
     let st = cmd.stdin(Stdio::null()).status().unwrap();
     assert!(st.success(), "could not make the test video");
@@ -34,7 +34,7 @@ fn a_reference_is_measured_and_a_cut_is_checked_against_it() {
 
     // warm, fast: 1 s, 2 s, 1 s, 3 s
     let reference = root.join("trailer.mp4");
-    make_video(&ffmpeg, &reference, &[("0xd02010", 1.0), ("0xf0d040", 2.0), ("0x401008", 1.0), ("0xf08020", 3.0)]);
+    make_video(&ffmpeg, &reference, &[("0xd02010", 1.0), ("0xf0d040", 2.0), ("0x401008", 1.0), ("0xf08020", 3.0)], 1.0);
     let r = ctx.reference_op(&json!({"file": reference.to_string_lossy(), "name": "Trailer"})).unwrap();
     assert_eq!(r["rhythm"]["shots"], 4, "{r}");
     assert!((r["rhythm"]["median_shot"].as_f64().unwrap() - 2.0).abs() < 0.2, "{r}");
@@ -50,7 +50,7 @@ fn a_reference_is_measured_and_a_cut_is_checked_against_it() {
 
     // a slow, cold cut is told what to change
     let ours = root.join("ours.mp4");
-    make_video(&ffmpeg, &ours, &[("0x2040c0", 4.0), ("0x80c0f0", 5.0)]);
+    make_video(&ffmpeg, &ours, &[("0x2040c0", 4.0), ("0x80c0f0", 5.0)], 1.0);
     let d = ctx.reference_op(&json!({"action": "compare", "reference": "trailer", "file": ours.to_string_lossy()})).unwrap();
     let differs = d["comparison"]["differs"].to_string();
     assert!(differs.contains("cut sooner") && differs.contains("warmer"), "{d}");
@@ -62,5 +62,31 @@ fn a_reference_is_measured_and_a_cut_is_checked_against_it() {
     assert!(b["edit"]["rules"].to_string().contains("Cut like 'Trailer'"), "{b}");
     assert_eq!(ctx.reference_op(&json!({"action": "list"})).unwrap()["references"].as_array().unwrap().len(), 1);
 
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn story_clips_are_delivered_at_platform_loudness() {
+    let Some(ffmpeg) = editemos::motion::render::find_ffmpeg() else {
+        eprintln!("skipped: no ffmpeg on this machine");
+        return;
+    };
+    let root = common::temp_home("loudness");
+    let ctx = common::ctx_in(&root);
+    ctx.project_op(&json!({"action": "create", "name": "Quiet Stream", "activate": true})).unwrap();
+    // a stream with the game turned down: far below what platforms play at
+    let quiet = root.join("quiet.mp4");
+    make_video(&ffmpeg, &quiet, &[("0x203040", 6.0), ("0x604020", 6.0)], 0.04);
+    let before = editemos::reference::analyse(&ffmpeg, &quiet, "quiet", None).unwrap().loudness.integrated_lufs.unwrap();
+    assert!(before < -30.0, "the source is quiet: {before}");
+    let spec = json!({"clips": [{"name": "loud-enough", "segments": [{"start": 1.0, "end": 5.0}, {"start": 7.0, "end": 11.0}]}]});
+    let r = ctx
+        .clips_op(
+            &json!({"action": "build", "file": quiet.to_string_lossy(), "spec": spec, "no_captions": true, "max_pause": 0, "breath": 0, "out": root.join("out").to_string_lossy()}),
+        )
+        .unwrap();
+    let out = r["clips"][0]["out"].as_str().unwrap().to_string();
+    let after = editemos::reference::analyse(&ffmpeg, Path::new(&out), "out", None).unwrap().loudness.integrated_lufs.unwrap();
+    assert!((after - -14.0).abs() <= 1.5, "delivered at {after} LUFS, not near -14");
     let _ = std::fs::remove_dir_all(&root);
 }
