@@ -686,7 +686,22 @@
       if (!own) return;
       const op = opacityOf(el);
       if (op < 0.35) return;
-      const r = el.getBoundingClientRect();
+      // the text itself, not its box: a centred word in a full-width block is not at the edge
+      const range = document.createRange();
+      let r = null;
+      el.childNodes.forEach((n) => {
+        if (n.nodeType !== 3 || !n.textContent.trim()) return;
+        range.selectNodeContents(n);
+        const b = range.getBoundingClientRect();
+        if (b.width < 1) return;
+        r = r ? { left: Math.min(r.left, b.left), top: Math.min(r.top, b.top), right: Math.max(r.right, b.right), bottom: Math.max(r.bottom, b.bottom) } : { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+      });
+      if (!r) return;
+      r.width = r.right - r.left;
+      r.height = r.bottom - r.top;
+      // a clip-path that hides the text (a mask reveal not started yet) means it is not on screen
+      const clip = getComputedStyle(el).clipPath;
+      if (clip && /inset\(\s*0(px|%)?\s+100%/.test(clip)) return;
       if (r.width < 2 || r.height < 2) return;
       const cs = getComputedStyle(el);
       const name = (el.id ? '#' + el.id : el.className && typeof el.className === 'string' ? '.' + el.className.split(/\s+/)[0] : el.tagName.toLowerCase()) + ` "${el.textContent.trim().slice(0, 24)}"`;
