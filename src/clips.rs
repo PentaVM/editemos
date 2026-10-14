@@ -99,7 +99,7 @@ pub struct Cue {
     pub text: String,
 }
 
-fn parse_time(t: &str) -> Option<f64> {
+pub(crate) fn parse_time(t: &str) -> Option<f64> {
     let t = t.trim().replace(',', ".");
     let parts: Vec<&str> = t.split(':').collect();
     let mut secs = 0.0;
@@ -346,6 +346,10 @@ pub struct Event {
     pub cuts_after: Vec<f64>,
 }
 
+/// Below this momentary loudness a stretch counts as silence (no microphone, muted
+/// game, a pause screen), not as the recording's normal level.
+const SILENT_LU: f64 = -60.0;
+
 /// Find the moments where the sound says something happened. Works on footage
 /// where nobody speaks (or everybody shouts): matches, gameplay, concerts.
 #[allow(clippy::needless_range_loop)]
@@ -364,10 +368,17 @@ pub fn events(audio: &Audio, max: usize) -> Vec<Event> {
         }
         smooth[i] = acc / (i.min(9) + 1) as f64;
     }
-    let mut sorted = smooth.clone();
+    // The normal level is measured only where there is sound. A stream with no
+    // microphone is silent for long stretches; counting those would make the
+    // silence "normal" and every audible second an event.
+    let mut sorted: Vec<f64> = smooth.iter().copied().filter(|v| *v > SILENT_LU).collect();
+    if sorted.len() < 50 {
+        return Vec::new();
+    }
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let base = sorted[n / 2];
-    let p90 = sorted[n * 9 / 10];
+    let m = sorted.len();
+    let base = sorted[m / 2];
+    let p90 = sorted[m * 9 / 10];
     // an event stands clearly above the ordinary: at least 2.5 LU, more on dynamic recordings
     let threshold = base + ((p90 - base) * 0.9).max(2.5);
     let mut peaks: Vec<(f64, usize)> = Vec::new();
@@ -770,6 +781,25 @@ mod tests {
         assert_eq!(parse_transcript(vtt)[0].end, 4.0);
         let cut = slice_srt(&c, 59.0, 70.0);
         assert!(cut.contains("00:00:01,000 --> 00:00:03,000") && cut.contains("No puede ser"));
+    }
+
+    #[test]
+    fn silence_is_not_the_normal_level() {
+        // a stream with no microphone: 60 s of nothing, 2 min of steady game sound
+        // with one loud moment at 1:30, then silence again
+        let mut loud = vec![-70f32; 2400];
+        for v in loud.iter_mut().take(1800).skip(600) {
+            *v = -24.0;
+        }
+        for v in loud.iter_mut().take(910).skip(890) {
+            *v = -12.0;
+        }
+        let audio = Audio { duration: 240.0, loud, silences: vec![(0.0, 60.0), (180.0, 240.0)] };
+        let ev = events(&audio, 10);
+        assert_eq!(ev.len(), 1, "only the loud moment, not every second of game sound: {ev:?}");
+        assert!((ev[0].peak - 90.0).abs() < 1.5 && ev[0].over > 8.0 && ev[0].over < 14.0);
+        // nothing but silence: nothing happened
+        assert!(events(&Audio { duration: 120.0, loud: vec![-70.0; 1200], silences: vec![] }, 10).is_empty());
     }
 
     #[test]

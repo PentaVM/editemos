@@ -51,7 +51,14 @@ editemos fixes those three things:
   where the last session ended.
 - **Motion graphics without After Effects.** HTML scenes rendered frame by frame through your
   own Chromium and encoded with ffmpeg to ProRes 4444, QuickTime Animation or WebM, all with
-  alpha, with real sub-frame motion blur. A linter rejects generic motion.
+  alpha, with real sub-frame motion blur. Scenes can be written the Remotion way (`interpolate`,
+  `spring`, `Sequence`, same names and maths, no React), carry their own synthesised sound tied
+  to the motion, and every render is checked at each settle point. A linter rejects generic motion.
+- **Reverse-engineer a reference.** Point at a video whose editing you want: cut rhythm, grade
+  and loudness are measured with their evidence, what cannot be measured is listed, and your
+  cut is compared against it trait by trait.
+- **Craft guides built in.** Cutting, story for shorts, sound design, colour, camera language,
+  generative video, Remotion-style motion, imitating a reference.
 - **Clips mode.** Hand it a stream; it listens to the whole recording hundreds of times faster
   than real time, picks the moments, cuts on pauses and exports them framed for vertical.
 - **Kdenlive, hands on.** Start it, read the open project, insert renders into a versioned copy,
@@ -234,6 +241,62 @@ $ editemos motion new lower-third "Ana Salazar"     -> scene: .../lower-third-54
 $ editemos motion new lower-third "Ana Salazar"     -> reused: true (same file, nothing rebuilt)
 ```
 
+### Written like Remotion, rendered here
+
+Models already know how to write Remotion. The same functions exist in every scene, with
+Remotion's names and maths (the spring is the damped-oscillator closed form; the test suite
+checks it against an independent numerical integration), and a composition is just a
+`render(frame)` that writes the page:
+
+```html
+<script>
+const { interpolate, spring, Easing, Sequence, Sfx } = Remotion;
+Motion.composition({ durationInFrames: 90, fps: 30, render(frame) {
+  const s = spring({ frame, fps: 30, config: { damping: 14 } });
+  title.style.transform = `scale(${s})`;
+  Sequence({ from: 40 }, (f) => {
+    Sfx({ kind: 'whoosh' });
+    bar.style.clipPath = `inset(0 ${interpolate(f, [0, 12], [100, 0], { easing: Easing.bezier(0.16, 1, 0.3, 1), extrapolateRight: 'clamp' })}% 0 0)`;
+  });
+} });
+</script>
+```
+
+The linter sees every `interpolate` and `spring` the composition uses, so linear timing gets
+flagged here too.
+
+### Sound that moves with the motion
+
+A scene declares its sound where the motion is: `sfx: 'whoosh'` on a tween (or
+`{ kind: 'thud', at: 'end' }`), `Sfx({ kind })` inside a `Sequence`, `Motion.sfx(seconds, kind)`
+anywhere, `Motion.beat(n, bpm)` for a music grid. The renderer synthesises click, tick, pop,
+whoosh, thud, boom, riser, hit, type, glitch and shimmer sample-exact (or mixes an audio file
+you place) and muxes it into the render: PCM in `.mov`, Opus in `.webm`. Move a tween and its
+sound moves with it. No stock audio, no licences, identical on every render.
+
+### Every render is reviewed
+
+Besides the contact sheet, a render returns `review`: one still for each moment the scene
+comes to rest (a couple of frames after each move ends, and the last frame). At those moments
+the page is checked for text cut by the frame edge, outside the 5% safe margin, overlapping,
+too small for a phone, or with low contrast against its own background. The agent looks at
+the stills, fixes the scene, renders again.
+
+## Make it like this one
+
+```bash
+editemos reference trailer.mp4 --name trailer        # or a link, with --section for part of it
+editemos reference apply trailer                     # adopt its tempo in the edit brand
+editemos reference compare trailer my-cut.mp4        # where we match it and what to change
+```
+
+`reference` measures the hard cuts and shot lengths (median, the fast and slow ends, how much
+they vary), the grade per shot and overall (brightness, saturation, warmth, contrast, palette)
+and the loudness. Each number says how it was measured; what cannot be measured (type, motion
+curves, music tempo, soft transitions) is listed for whoever reads the sheet of one frame per
+shot. `compare` measures your cut the same way and answers in sentences: "median 3.1 s
+against 1.4 s in the reference (slower); cut sooner".
+
 ## Shorts, films, clips
 
 - **Shorts and reels.** `editemos init X --size 1080x1920`; captions and titles from the
@@ -358,6 +421,7 @@ run and the method are in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
     assets/        logos, images, fonts + index.json with provenance
     motion/        scenes/  renders/  library.json
     clips/         clips + manifest + EDL
+    references/    measured reference edits (.json) and their shot sheets
     context/       CONTEXT.md, regenerated on every change
     runs/          session launchers and delegated-run logs
 ```
@@ -381,7 +445,8 @@ Known limits, stated plainly:
 
 - Developed and benchmarked on Windows. Linux and macOS build and pass the suite in CI, but
   window detection for Kdenlive there depends on `wmctrl` or AppleScript, and has seen far less use.
-- Clips mode ranks moments by sound (and words, with a transcript). It does not watch the picture.
+- Clips mode ranks moments by sound (and words, with a transcript). It does not watch the
+  picture by itself; the agent does, through `clips look` and the review sheet.
 - Typefaces cannot be read from an avatar. After a profile extraction the typeface is a fallback
   until you, or a model that can see, name one.
 - Instagram and TikTok often show nothing to an anonymous visitor. When that happens the tool
@@ -389,6 +454,11 @@ Known limits, stated plainly:
 - Inserting a clip into a Kdenlive project (`overlay`) is verified by rendering the result with
   melt, and is still marked experimental; opening the copy in the GUI is the final check.
 - `editemos session` opens the window; it does not place it on a particular monitor.
+- The Remotion layer has Remotion's functions, not React: JSX components and Remotion's own
+  packages (`@remotion/*`) do not run in a scene. `random(seed)` is deterministic but does not
+  return the same numbers as Remotion's.
+- `reference` detects hard cuts only. Dissolves and whip-pans can hide inside a shot, and music
+  tempo is not measured.
 
 ## Contributing
 

@@ -6,6 +6,7 @@ pub mod fonts;
 pub mod library;
 pub mod lint;
 pub mod render;
+pub mod sound;
 pub mod templates;
 
 pub const LIB_JS: &str = include_str!("../../assets/motion-lib.js");

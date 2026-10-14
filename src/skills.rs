@@ -451,8 +451,43 @@ pub fn front_matter(text: &str) -> (String, String) {
     (name, desc)
 }
 
-/// Every downloaded skill (a folder containing SKILL.md), flagged ones included.
+/// Craft guides that ship inside the binary (cutting, story, sound, colour,
+/// camera, generative video, Remotion-style motion, reverse-engineering a reference).
+pub const CRAFT: &[(&str, &str)] = &[
+    ("cutting", include_str!("../assets/craft/cutting.md")),
+    ("story-shorts", include_str!("../assets/craft/story-shorts.md")),
+    ("sound-design", include_str!("../assets/craft/sound-design.md")),
+    ("color-grade", include_str!("../assets/craft/color-grade.md")),
+    ("camera-language", include_str!("../assets/craft/camera-language.md")),
+    ("generative-video", include_str!("../assets/craft/generative-video.md")),
+    ("motion-remotion", include_str!("../assets/craft/motion-remotion.md")),
+    ("reverse-engineer-a-reference", include_str!("../assets/craft/reverse-engineer-a-reference.md")),
+];
+pub const CRAFT_ID: &str = "editemos-craft";
+
+/// Put the built-in guides where every other skill lives, so list, read, enable
+/// and export treat them alike. Rewritten only when this version's text differs.
+pub fn install_craft(home: &Home) -> Result<()> {
+    let root = home.skills_dir().join(CRAFT_ID);
+    let stamp = sha256_hex(CRAFT.iter().map(|(n, t)| format!("{n}\n{t}")).collect::<String>().as_bytes());
+    let current: Option<Source> = fs::read_to_string(root.join("SOURCE.json")).ok().and_then(|s| serde_json::from_str(&s).ok());
+    if current.map(|c| c.sha == stamp).unwrap_or(false) {
+        return Ok(());
+    }
+    let mut files = Vec::new();
+    for (name, text) in CRAFT {
+        let rel = format!("{name}/SKILL.md");
+        write_atomic(&root.join(name).join("SKILL.md"), text.as_bytes())?;
+        files.push(FileRec { path: rel, sha256: sha256_hex(text.as_bytes()), bytes: text.len() as u64, flagged: Vec::new() });
+    }
+    let src = Source { id: CRAFT_ID.into(), repo: "PentaVM/editemos".into(), sha: stamp, license: "MIT OR Apache-2.0".into(), fetched_at: now_iso(), files, skipped: Vec::new() };
+    write_atomic(&root.join("SOURCE.json"), serde_json::to_string_pretty(&src)?.as_bytes())
+}
+
+/// Every downloaded skill (a folder containing SKILL.md), flagged ones included,
+/// plus the built-in craft guides.
 pub fn local_skills(home: &Home) -> Vec<LocalSkill> {
+    let _ = install_craft(home);
     let mut out = Vec::new();
     let Ok(rd) = fs::read_dir(home.skills_dir()) else { return out };
     for e in rd.flatten() {
@@ -549,6 +584,29 @@ mod tests {
         for e in &c {
             assert!(["MIT", "Apache-2.0", "CC0-1.0", "BSD-3-Clause"].contains(&e.license.as_str()), "{}", e.id);
         }
+    }
+
+    #[test]
+    fn craft_guides_are_skills_like_any_other() {
+        let root = std::env::temp_dir().join(format!("editemos-craft-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let home = Home { root: root.clone() };
+        let all = local_skills(&home);
+        let craft: Vec<&LocalSkill> = all.iter().filter(|s| s.id == CRAFT_ID).collect();
+        assert_eq!(craft.len(), CRAFT.len());
+        for s in &craft {
+            assert!(!s.description.is_empty(), "{} has no description", s.name);
+            assert!(s.flagged.is_empty(), "{} trips the scanner: {:?}", s.name, s.flagged);
+            // our own text must pass the same scanner downloaded skills do
+            assert!(scan(&fs::read_to_string(&s.skill_md).unwrap()).iter().all(|f| !is_blocking(f)), "{}", s.name);
+        }
+        assert!(craft.iter().any(|s| s.name == "cutting") && craft.iter().any(|s| s.name == "motion-remotion"));
+        // a second call does not rewrite anything
+        let stamp = fs::metadata(root.join("skills").join(CRAFT_ID).join("SOURCE.json")).and_then(|m| m.modified()).ok();
+        local_skills(&home);
+        assert_eq!(stamp, fs::metadata(root.join("skills").join(CRAFT_ID).join("SOURCE.json")).and_then(|m| m.modified()).ok());
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

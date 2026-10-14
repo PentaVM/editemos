@@ -474,9 +474,111 @@ impl Ctx {
                 }
                 let mut v = serde_json::to_value(r)?;
                 v["reused"] = json!(false);
+                if let Some(review) = v.get("review").cloned() {
+                    // the stills at each settle point: look at them before calling the graphic done
+                    v["images"] = json!([review]);
+                    v["before_you_call_it_done"] = json!("Look at the review frames (one per moment the scene comes to rest): is every word readable against what is behind it, did each element land before the next appeared, does anything collide or touch the edge? Fix the scene and render again; two rounds at most.");
+                }
                 Ok(v)
             }
             other => fail(format!("unknown motion action '{other}' (templates, new, library, render, lint, poster)")),
+        }
+    }
+
+    /* ---------------- reference edits ---------------- */
+
+    /// Reverse-engineer a reference video (`analyse`), check one of our cuts
+    /// against it (`compare`), list what the project has, or adopt its tempo (`apply`).
+    pub fn reference_op(&self, a: &Value) -> Result<Value> {
+        let p = self.project(a)?;
+        let dir = p.dir.join("references");
+        let action = s(a, "action").unwrap_or_else(|| "analyse".into());
+        let load = |name: &str| -> Result<crate::reference::Reference> {
+            let path = if name.ends_with(".json") && Path::new(name).exists() { PathBuf::from(name) } else { dir.join(format!("{}.json", slugify(name))) };
+            let text = std::fs::read_to_string(&path).map_err(|_| crate::error::Error(format!("no reference '{name}' in this project (action=list)")))?;
+            Ok(serde_json::from_str(&text)?)
+        };
+        match action.as_str() {
+            "list" => {
+                let mut names: Vec<Value> = Vec::new();
+                if let Ok(rd) = std::fs::read_dir(&dir) {
+                    for e in rd.flatten().filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false)) {
+                        if let Ok(r) = serde_json::from_str::<crate::reference::Reference>(&std::fs::read_to_string(e.path()).unwrap_or_default()) {
+                            names.push(json!({"name": r.name, "source": r.source, "duration": r.duration, "median_shot": r.rhythm.median_shot, "grade": r.grade.words}));
+                        }
+                    }
+                }
+                Ok(json!({"references": names}))
+            }
+            "analyse" | "analyze" | "compare" => {
+                let Some(ffmpeg) = motion::render::find_ffmpeg() else { return fail("ffmpeg not found") };
+                let (file, _) = self.source_and_cues(&p, a)?;
+                let stem = file.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_else(|| "reference".into());
+                if action == "compare" {
+                    let Some(name) = s(a, "reference") else { return fail("compare needs reference=<name> (action=list) and file=<our cut>") };
+                    let r = load(&name)?;
+                    let c = crate::reference::analyse(&ffmpeg, &file, &stem, None)?;
+                    let cmp = crate::reference::compare(&r, &c);
+                    return Ok(json!({"comparison": cmp, "candidate": {"rhythm": c.rhythm, "grade": c.grade, "loudness": c.loudness},
+                        "note": "Each line is a trait measured the same way on both. Fix what differs that matters for this edit, build again and compare again; matching numbers do not make a good cut on their own."}));
+                }
+                let name = s(a, "name").unwrap_or_else(|| stem.clone());
+                let slug = slugify(&name);
+                let sheet = dir.join(format!("{slug}.png"));
+                let r = crate::reference::analyse(&ffmpeg, &file, &name, Some(&sheet))?;
+                write_atomic(&dir.join(format!("{slug}.json")), serde_json::to_string_pretty(&r)?.as_bytes())?;
+                memory::add(
+                    &p,
+                    &format!(
+                        "Reference edit '{}': median shot {:.2} s ({} cuts a minute), {}{}",
+                        name,
+                        r.rhythm.median_shot,
+                        r.rhythm.cuts_per_minute,
+                        r.grade.words.join(", "),
+                        r.loudness.integrated_lufs.map(|l| format!(", {l:.1} LUFS")).unwrap_or_default()
+                    ),
+                    "note",
+                    vec!["reference".into()],
+                    "high",
+                    "measured",
+                    false,
+                    None,
+                )?;
+                self.refresh(&p);
+                let mut v = serde_json::to_value(&r)?;
+                // the per-shot list is in the file; the answer stays readable
+                v["shots"] = json!(r.shots.len());
+                v["file"] = json!(path_str(&dir.join(format!("{slug}.json"))));
+                v["contact"] = json!(r.sheet);
+                v["next"] = json!("Read the sheet: name the type, the graphics and how the camera moves, which the numbers cannot. action=apply adopts its tempo for this project; after building a cut, action=compare reference=<name> file=<cut> checks it against this.");
+                Ok(v)
+            }
+            "apply" => {
+                let Some(name) = s(a, "reference") else { return fail("apply needs reference=<name>") };
+                let r = load(&name)?;
+                let mut br = p.load_brand();
+                if br.edit.locked {
+                    return fail("the edit brand is locked (brand action=unlock to change it)");
+                }
+                let tempo = crate::reference::tempo_of(&r);
+                br.edit.tempo = tempo.to_string();
+                let rule = format!(
+                    "Cut like '{}': median shot about {:.1} s, the fast end {:.1} s, the slow end {:.1} s; grade {}",
+                    r.name,
+                    r.rhythm.median_shot,
+                    r.rhythm.p10_shot,
+                    r.rhythm.p90_shot,
+                    r.grade.words.join(", ")
+                );
+                br.edit.rules.retain(|x| !x.starts_with("Cut like '"));
+                br.edit.rules.push(rule.clone());
+                br.edit.rationale.push(format!("tempo {tempo} measured from the reference '{}'", r.name));
+                p.save_brand(&br)?;
+                memory::add(&p, &rule, "decision", vec!["reference".into(), "tempo".into()], "high", "user", true, None)?;
+                self.refresh(&p);
+                Ok(json!({"project": p.config.slug, "tempo": tempo, "rule": rule}))
+            }
+            other => fail(format!("unknown reference action '{other}' (analyse, compare, list, apply)")),
         }
     }
 
