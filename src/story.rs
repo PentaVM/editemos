@@ -131,6 +131,59 @@ pub struct Built {
     pub notes: Vec<String>,
     /// The segments as they were finally cut, in source time.
     pub cut: Vec<(f64, f64)>,
+    /// Integrated loudness as delivered (LUFS), and what it was before.
+    pub loudness: Option<f64>,
+    pub loudness_before: Option<f64>,
+}
+
+/// Whether this ffmpeg was built with a filter (e.g. `ass`, which needs libass).
+pub fn has_filter(ffmpeg: &Path, name: &str) -> bool {
+    let Ok(out) = Command::new(ffmpeg).args(["-hide_banner", "-filters"]).stdin(Stdio::null()).output() else { return false };
+    String::from_utf8_lossy(&out.stdout).lines().any(|l| l.split_whitespace().nth(1) == Some(name))
+}
+
+/// Bring a finished clip to `LOUDNESS_LUFS`: measure it, add the gain it is missing and
+/// let a limiter hold the peaks under -1.5 dBFS. A single-pass loudnorm cannot lift a
+/// quiet stream that far, so the gain is computed from the measurement instead. The
+/// picture is copied, not encoded again. Returns (before, after).
+pub fn deliver_loudness(ffmpeg: &Path, file: &Path) -> Result<(Option<f64>, Option<f64>)> {
+    let Some(before) = crate::reference::loudness(ffmpeg, file).integrated_lufs.filter(|i| i.is_finite() && *i > -69.0) else {
+        return Ok((None, None));
+    };
+    let gain = LOUDNESS_LUFS - before;
+    if gain.abs() < 0.5 {
+        return Ok((Some(before), Some(before)));
+    }
+    let tmp = file.with_extension("loud.mp4");
+    let r = Command::new(ffmpeg)
+        .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+        .arg(file)
+        .args([
+            "-map",
+            "0:v",
+            "-map",
+            "0:a",
+            "-c:v",
+            "copy",
+            "-af",
+            &format!("volume={gain:.2}dB,alimiter=limit=0.84:level=0"),
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-movflags",
+            "+faststart",
+        ])
+        .arg(&tmp)
+        .stdin(Stdio::null())
+        .output()?;
+    if !r.status.success() {
+        let _ = std::fs::remove_file(&tmp);
+        return fail(format!("could not set the loudness: {}", crate::util::truncate_chars(String::from_utf8_lossy(&r.stderr).trim(), 300)));
+    }
+    std::fs::rename(&tmp, file)?;
+    let after = crate::reference::loudness(ffmpeg, file).integrated_lufs;
+    Ok((Some(before), after))
 }
 
 /* ------------------------------ planning helpers ------------------------------ */
@@ -296,6 +349,9 @@ pub fn caption_lines(words: &[Word], per_line: usize) -> Vec<Vec<Word>> {
     }
     lines
 }
+
+/// Integrated loudness every story clip is delivered at (streaming platforms normalise near it).
+pub const LOUDNESS_LUFS: f64 = -14.0;
 
 pub struct Overlay {
     pub start: f64,
@@ -632,11 +688,19 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
         g.push_str(&format!("[v{i}]"));
     }
     g.push_str(&format!("concat=n={n}:v=1:a=0[vc];"));
+    // some ffmpeg builds (Homebrew's, for one) come without libass: the clip is still
+    // cut, and the user is told why it carries no text
+    let text = if has_filter(&ffmpeg, "ass") {
+        "ass=c.ass:fontsdir=fonts"
+    } else {
+        notes.push("this ffmpeg has no libass, so captions, title and labels were NOT burned in; install an ffmpeg built with libass to get them".into());
+        "null"
+    };
     if punchline {
         // the cut is the joke: straight to black, no fade, a beat of nothing
-        g.push_str("[vc]tpad=stop_duration=0.45:stop_mode=add:color=black[vt];[vt]ass=c.ass:fontsdir=fonts[vo]");
+        g.push_str(&format!("[vc]tpad=stop_duration=0.45:stop_mode=add:color=black[vt];[vt]{text}[vo]"));
     } else {
-        g.push_str("[vc]ass=c.ass:fontsdir=fonts[vo]");
+        g.push_str(&format!("[vc]{text}[vo]"));
     }
     if let Some(parent) = o.out.parent() {
         std::fs::create_dir_all(parent)?;
@@ -656,7 +720,11 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
     if !r.status.success() {
         return fail(format!("ffmpeg could not render the story: {}", crate::util::truncate_chars(String::from_utf8_lossy(&r.stderr).trim(), 500)));
     }
+    // platforms play everything near -14 LUFS: a quiet stream must not arrive as a whisper
+    let (loudness_before, loudness) = deliver_loudness(&ffmpeg, &abs_out)?;
     Ok(Built {
+        loudness,
+        loudness_before,
         out: path_str(&abs_out),
         duration: (total * 100.0).round() / 100.0,
         pieces: n,

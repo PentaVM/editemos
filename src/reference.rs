@@ -205,7 +205,8 @@ fn tempo_word(r: &Rhythm) -> &'static str {
     }
 }
 
-fn loudness(ffmpeg: &Path, src: &Path) -> Loudness {
+/// Integrated loudness and loudness range of a file (EBU R128).
+pub fn loudness(ffmpeg: &Path, src: &Path) -> Loudness {
     let out = Command::new(ffmpeg).args(["-hide_banner", "-nostats", "-i"]).arg(src).args(["-vn", "-af", "ebur128", "-f", "null", "-"]).stdin(Stdio::null()).output();
     let Ok(out) = out else { return Loudness::default() };
     let text = String::from_utf8_lossy(&out.stderr);
