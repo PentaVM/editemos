@@ -136,6 +136,12 @@ pub struct Built {
     pub loudness_before: Option<f64>,
 }
 
+/// Whether this ffmpeg was built with a filter (e.g. `ass`, which needs libass).
+pub fn has_filter(ffmpeg: &Path, name: &str) -> bool {
+    let Ok(out) = Command::new(ffmpeg).args(["-hide_banner", "-filters"]).stdin(Stdio::null()).output() else { return false };
+    String::from_utf8_lossy(&out.stdout).lines().any(|l| l.split_whitespace().nth(1) == Some(name))
+}
+
 /// Bring a finished clip to `LOUDNESS_LUFS`: measure it, add the gain it is missing and
 /// let a limiter hold the peaks under -1.5 dBFS. A single-pass loudnorm cannot lift a
 /// quiet stream that far, so the gain is computed from the measurement instead. The
@@ -682,11 +688,19 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
         g.push_str(&format!("[v{i}]"));
     }
     g.push_str(&format!("concat=n={n}:v=1:a=0[vc];"));
+    // some ffmpeg builds (Homebrew's, for one) come without libass: the clip is still
+    // cut, and the user is told why it carries no text
+    let text = if has_filter(&ffmpeg, "ass") {
+        "ass=c.ass:fontsdir=fonts"
+    } else {
+        notes.push("this ffmpeg has no libass, so captions, title and labels were NOT burned in; install an ffmpeg built with libass to get them".into());
+        "null"
+    };
     if punchline {
         // the cut is the joke: straight to black, no fade, a beat of nothing
-        g.push_str("[vc]tpad=stop_duration=0.45:stop_mode=add:color=black[vt];[vt]ass=c.ass:fontsdir=fonts[vo]");
+        g.push_str(&format!("[vc]tpad=stop_duration=0.45:stop_mode=add:color=black[vt];[vt]{text}[vo]"));
     } else {
-        g.push_str("[vc]ass=c.ass:fontsdir=fonts[vo]");
+        g.push_str(&format!("[vc]{text}[vo]"));
     }
     if let Some(parent) = o.out.parent() {
         std::fs::create_dir_all(parent)?;

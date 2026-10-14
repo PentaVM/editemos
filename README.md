@@ -460,6 +460,8 @@ Known limits, stated plainly:
 - The Remotion layer has Remotion's functions, not React: JSX components and Remotion's own
   packages (`@remotion/*`) do not run in a scene. `random(seed)` is deterministic but does not
   return the same numbers as Remotion's.
+- Burned-in captions, titles and labels need an ffmpeg built with libass. Homebrew's ffmpeg
+  on macOS has none: clips are still cut there, and the build says the text was left out.
 - `reference` detects hard cuts only. Dissolves and whip-pans can hide inside a shot, and music
   tempo is not measured.
 
