@@ -24,7 +24,7 @@ Workflow:\n\
 1. Find the project. If the user says \"let's edit for <client>\", use project=\"<client>\" (create it with editemos_project action=create if it does not exist). Otherwise the active project is used.\n\
 2. Call editemos_context BEFORE editing. It returns the brand, the project's own edit brand (easings, durations, transitions, type), past decisions and rejections, and assets. Obey it. Never reuse another project's look.\n\
 3. Need the brand? editemos_extract reads a website into palette, fonts, logo, voice and downloaded assets. editemos_generate makes on-brand images through the adapter you choose.\n\
-4. Motion graphics: editemos_motion new -> lint -> render. It is open source (HTML + headless browser + ffmpeg), renders ProRes 4444 / WebM with alpha and returns a contact sheet. Look at it before saying a scene is done. The project keeps a motion library: check editemos_motion action=library first and reuse or adapt what exists. Never write a new script for a graphic the project already has; new/render return the existing piece (reused=true) when asked for the same thing.\n\
+4. Motion graphics: editemos_motion new -> lint -> render. It is open source (HTML + headless browser + ffmpeg), renders ProRes 4444 / WebM with alpha and returns a contact sheet and a review still per settle point. Look at them before saying a scene is done. Scenes can be written the Remotion way (interpolate, spring, Sequence) and carry their own synthesised sound. The project keeps a motion library: check editemos_motion action=library first and reuse or adapt what exists. Never write a new script for a graphic the project already has; new/render return the existing piece (reused=true) when asked for the same thing.\n\
 You are the co-pilot, not the only editor: call editemos_studio once so the user sees every asset, render and clip live and can correct you. For long recordings use editemos_clips. For a separate window or another model use editemos_session.\n\
 5. Kdenlive: editemos_kdenlive status/inspect/diff/overlay/draft. Never overwrite the user's project file; overlay writes a versioned copy.\n\
 6. After every decision, preference or rejection the user expresses, call editemos_memory_add. That is what makes the next session start where this one ended.\n\
@@ -214,7 +214,7 @@ pub fn tools() -> Vec<Value> {
         tool(
             "editemos_motion",
             "Motion graphics",
-            "Open-source motion graphics, no After Effects. actions: templates; new (kind: title | lower-third | quote | chapter | callout | caption; text/params) writes an HTML scene driven by the project's edit brand; lint flags generic motion (default easings, uniform durations, fade+slide, bouncy); render captures frames in a headless browser and encodes ProRes 4444 / PNG-MOV / WebM with alpha (or a PNG sequence), with optional motion blur, and returns a contact sheet image; poster renders one PNG. Always look at the contact sheet before declaring a scene done.",
+            "Open-source motion graphics, no After Effects. actions: templates; new (kind: title | lower-third | quote | chapter | callout | caption; text/params) writes an HTML scene driven by the project's edit brand; lint flags generic motion (default easings, uniform durations, fade+slide, bouncy); render captures frames in a headless browser and encodes ProRes 4444 / PNG-MOV / WebM with alpha (or a PNG sequence), with optional motion blur, and returns a contact sheet image; poster renders one PNG. Always look at the contact sheet before declaring a scene done. Scenes may be written Remotion-style without React: Motion.composition({durationInFrames, fps, render(frame)}) with Remotion's interpolate, spring, interpolateColors, Easing, Sequence, Series (window.Remotion). Sound moves with the motion: sfx:'whoosh' on a tween, Motion.sfx(seconds, kind) or Remotion.Sfx({kind, from}) (click, tick, pop, whoosh, thud, boom, riser, hit, type, glitch, shimmer, or file with src); render synthesises it and muxes it into the video. render also checks the layout at every settle point (text off screen, outside the safe margin, overlapping, too small, low contrast) and returns a review image with one still per settle point: look at it, fix, render again.",
             schema(
                 vec![
                     ("action", prop("string", "templates | new | library | lint | render | poster")),
@@ -361,6 +361,24 @@ pub fn tools() -> Vec<Value> {
             true,
         ),
         tool(
+            "editemos_reference",
+            "Reverse-engineer a reference edit",
+            "Measure the editing of a video the user wants to imitate (a trailer, a creator's short, a brand film; a file or a link): shot lengths and cut rhythm, the grade (brightness, saturation, warmth, contrast, palette, per shot) and loudness, each number with how it was measured, plus what cannot be measured (type, motion curves, music tempo, transitions other than hard cuts) and a sheet with one frame per shot for you to read. actions: analyse (default; file, name, section for part of a long video), compare (reference=<name>, file=<our cut>: trait by trait where it matches and what to change), apply (reference=<name>: adopt its tempo and a cutting rule in the edit brand), list. Use it before building when the user says \"make it like this one\", and compare after building.",
+            schema(
+                vec![
+                    ("action", prop("string", "analyse | compare | apply | list")),
+                    ("project", prop("string", "Project (default: active)")),
+                    ("file", prop("string", "The video: a path or a link (analyse: the reference; compare: our cut)")),
+                    ("section", prop("string", "Part of a long linked video, e.g. \"*00:10:00-00:12:00\"")),
+                    ("name", prop("string", "Name to keep the reference under (analyse)")),
+                    ("reference", prop("string", "A saved reference (compare, apply)")),
+                ],
+                &[],
+            ),
+            false,
+            true,
+        ),
+        tool(
             "editemos_session",
             "Open an agent in its own window",
             "Start a separate, detached working session for this project in a new terminal window: Claude Code, Codex, Gemini CLI, or the built-in chat for DeepSeek, OpenRouter and local models (Ollama, LM Studio). Model and reasoning effort are chosen per session; the project's memory and edit brand are the same whichever agent runs. Use it when the user wants the edit to continue in a dedicated window or with a different model.",
@@ -466,6 +484,7 @@ pub fn call_tool(ctx: &Ctx, name: &str, args: &Value) -> Value {
     let result: crate::error::Result<Value> = match name {
         "editemos_clips" => ctx.clips_op(args),
         "editemos_fonts" => ctx.fonts_op(args),
+        "editemos_reference" => ctx.reference_op(args),
         "editemos_session" => ctx.session_op(args),
         "editemos_studio" => ctx.studio_op(args),
         "editemos_context" => ctx.context_pack(args),

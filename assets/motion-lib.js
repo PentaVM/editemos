@@ -197,7 +197,7 @@
   /* ------------------------------------------------------------------ */
   /* timeline                                                            */
   /* ------------------------------------------------------------------ */
-  const registry = { timelines: [], allow: {}, meta: {} };
+  const registry = { timelines: [], allow: {}, meta: {}, cues: [], compMeta: [] };
 
   function resolveTargets(target) {
     if (!target) return [];
@@ -243,6 +243,15 @@
           tweens.push({ el, key, from: fromV, to: toV, at: at + offset, dur, ez, order: order++ });
         });
         end = Math.max(end, at + offset + dur);
+        // sound tied to this move: { sfx: 'whoosh' } or [{ kind, at: 'end' | seconds, gain, each }]
+        if (o.sfx) {
+          (Array.isArray(o.sfx) ? o.sfx : [o.sfx]).forEach((s) => {
+            const spec = typeof s === 'string' ? { kind: s } : s;
+            if (i > 0 && !spec.each) return;
+            const rel = spec.at === 'end' ? dur : typeof spec.at === 'number' ? spec.at : 0;
+            sfx(at + offset + rel, spec.kind, spec);
+          });
+        }
       });
       const propNames = Array.from(new Set([...Object.keys(from || {}), ...Object.keys(to || {})]));
       const deltas = {};
@@ -404,6 +413,325 @@
     return { fonts: Object.fromEntries(fonts) };
   }
 
+  /* ------------------------------------------------------------------ */
+  /* sound: cues that move with the motion                               */
+  /* ------------------------------------------------------------------ */
+  // Every cue is declared by the scene and synthesised by the renderer
+  // (`editemos motion render`), so the sound sits on the exact frame of the
+  // motion that caused it: move the tween and its sound moves with it.
+  const SFX = ['click', 'tick', 'pop', 'whoosh', 'thud', 'boom', 'riser', 'hit', 'type', 'glitch', 'shimmer', 'file'];
+  const cueKeys = new Set();
+  function sfx(at, kind, o = {}) {
+    if (kind === 'swoosh') kind = 'whoosh';
+    if (!SFX.includes(kind)) throw new Error(`Motion.sfx: unknown sound "${kind}". Known: ${SFX.join(', ')} (file needs src)`);
+    if (kind === 'file' && !o.src) throw new Error('Motion.sfx: kind "file" needs { src }');
+    const t = Math.max(0, +at || 0);
+    const key = `${kind}|${t.toFixed(4)}|${o.src || ''}|${o.gain ?? ''}|${o.pitch ?? ''}`;
+    if (cueKeys.has(key)) return;
+    cueKeys.add(key);
+    const cue = { at: +t.toFixed(5), kind, gain: o.gain ?? 1, pitch: o.pitch ?? 1, pan: o.pan ?? 0, seed: o.seed ?? registry.cues.length + 1 };
+    if (o.dur !== undefined) cue.dur = o.dur;
+    if (o.src) cue.src = String(o.src);
+    if (o.trim !== undefined) cue.trim = o.trim;
+    registry.cues.push(cue);
+  }
+  // seconds of beat n on a grid of `bpm` (120 bpm = one beat every 0.5 s)
+  const beat = (n, bpm = 120) => (n * 60) / bpm;
+
+  /* ------------------------------------------------------------------ */
+  /* Remotion-compatible layer                                           */
+  /* ------------------------------------------------------------------ */
+  // The same names and the same maths as Remotion (interpolate, spring,
+  // interpolateColors, Easing, Sequence, Series, useCurrentFrame ...), without
+  // React: a composition is a render(frame) function that writes the DOM or a
+  // canvas. Code a model already knows how to write for Remotion runs here with
+  // the hooks replaced by plain calls, and stays a pure function of the frame.
+  let frames = []; // stack: [absolute, local inside the innermost Sequence, ...]
+  let recording = false;
+  const usage = new Map();
+  let comp = null;
+
+  const named = (fn, name, generic) => Object.assign(fn, { __ename: name, __generic: !!generic });
+  const Easing = {
+    linear: named((t) => t, 'linear', true),
+    ease: named(cubicBezier(0.42, 0, 1, 1), 'ease', true),
+    quad: named((t) => t * t, 'quad', true),
+    cubic: named((t) => t * t * t, 'cubic', true),
+    poly: (n) => named((t) => Math.pow(t, n), `poly(${n})`, n <= 3),
+    sin: named((t) => 1 - Math.cos((t * Math.PI) / 2), 'sin', true),
+    circle: named((t) => 1 - Math.sqrt(Math.max(0, 1 - t * t)), 'circle', false),
+    exp: named((t) => Math.pow(2, 10 * (t - 1)), 'exp', false),
+    elastic: (b = 1) => { const p = b * Math.PI; return named((t) => 1 - Math.pow(Math.cos((t * Math.PI) / 2), 3) * Math.cos(t * p), `elastic(${b})`, false); },
+    back: (s = 1.70158) => named((t) => t * t * ((s + 1) * t - s), `back(${s})`, false),
+    bounce: named((t) => {
+      if (t < 1 / 2.75) return 7.5625 * t * t;
+      if (t < 2 / 2.75) { const u = t - 1.5 / 2.75; return 7.5625 * u * u + 0.75; }
+      if (t < 2.5 / 2.75) { const u = t - 2.25 / 2.75; return 7.5625 * u * u + 0.9375; }
+      const u = t - 2.625 / 2.75; return 7.5625 * u * u + 0.984375;
+    }, 'bounce', false),
+    bezier: (x1, y1, x2, y2) => named(cubicBezier(x1, y1, x2, y2), `bezier(${x1},${y1},${x2},${y2})`, false),
+    in: (e) => named((t) => e(t), `in(${e.__ename || 'fn'})`, e.__generic),
+    out: (e) => named((t) => 1 - e(1 - t), `out(${e.__ename || 'fn'})`, e.__generic),
+    inOut: (e) => named((t) => (t < 0.5 ? e(t * 2) / 2 : 1 - e((1 - t) * 2) / 2), `inOut(${e.__ename || 'fn'})`, e.__generic),
+  };
+
+  function note(kind, key, meta) {
+    if (!recording || usage.has(key)) return;
+    usage.set(key, true);
+    registry.compMeta.push(Object.assign({ target: kind, props: [], deltas: {}, count: 1, stagger: 0, kind, loop: false }, meta));
+  }
+  // the offset of the innermost Sequence in absolute frames
+  const offset = () => (frames.length ? frames[0] - frames[frames.length - 1] : 0);
+  const isFrame = (v) => frames.length > 0 && frames.includes(v);
+  const fpsNow = () => (comp ? comp.fps : 30);
+
+  function interpolateSegment(input, [i0, i1], [o0, o1], easing, left, right) {
+    let r = input;
+    if (r < i0) {
+      if (left === 'identity') return r;
+      if (left === 'clamp') r = i0;
+      else if (left === 'wrap') { const span = i1 - i0; r = ((((r - i0) % span) + span) % span) + i0; }
+    }
+    if (r > i1) {
+      if (right === 'identity') return r;
+      if (right === 'clamp') r = i1;
+      else if (right === 'wrap') { const span = i1 - i0; r = ((((r - i0) % span) + span) % span) + i0; }
+    }
+    if (o0 === o1) return o0;
+    if (i1 === i0) return r <= i0 ? o0 : o1;
+    return easing((r - i0) / (i1 - i0)) * (o1 - o0) + o0;
+  }
+
+  function interpolate(input, inputRange, outputRange, options = {}) {
+    if (!Array.isArray(inputRange) || inputRange.length < 2 || inputRange.length !== outputRange.length) {
+      throw new Error('interpolate: inputRange and outputRange need the same length (>= 2)');
+    }
+    for (let i = 1; i < inputRange.length; i++) {
+      if (!(inputRange[i] > inputRange[i - 1])) throw new Error(`interpolate: inputRange must be strictly increasing, got [${inputRange.join(', ')}]`);
+    }
+    let easing = options.easing || Easing.linear;
+    if (typeof easing === 'string' || Array.isArray(easing)) {
+      // a Motion.ease name or a bezier array works too
+      const r = resolveEase(easing);
+      easing = named(r.fn, r.name, r.generic);
+    }
+    const left = options.extrapolateLeft || 'extend';
+    const right = options.extrapolateRight || 'extend';
+    if (isFrame(input)) {
+      const name = easing.__ename || 'custom-fn';
+      const fps = fpsNow();
+      const start = frames[0] - input + inputRange[0];
+      note('interpolate', `i|${start}|${inputRange.join(',')}|${outputRange.join(',')}|${name}`, {
+        at: start / fps, dur: (inputRange[inputRange.length - 1] - inputRange[0]) / fps,
+        ease: name, custom: !easing.__ename, generic: easing.__ename ? !!easing.__generic : false,
+      });
+    }
+    let i = 1;
+    while (i < inputRange.length - 1 && input > inputRange[i]) i++;
+    return interpolateSegment(input, [inputRange[i - 1], inputRange[i]], [outputRange[i - 1], outputRange[i]], easing, left, right);
+  }
+
+  let colorCtx = null;
+  function toRgba(c) {
+    const direct = parseColor(c);
+    if (direct) return direct;
+    if (!colorCtx) colorCtx = document.createElement('canvas').getContext('2d');
+    colorCtx.fillStyle = '#000';
+    colorCtx.fillStyle = c; // named colours, hsl(): the browser normalises them
+    return parseColor(colorCtx.fillStyle) || [0, 0, 0, 1];
+  }
+  function interpolateColors(input, inputRange, outputRange) {
+    const cs = outputRange.map(toRgba);
+    const ch = (k) => interpolate(input, inputRange, cs.map((c) => c[k]), { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+    return `rgba(${Math.round(ch(0))}, ${Math.round(ch(1))}, ${Math.round(ch(2))}, ${+ch(3).toFixed(4)})`;
+  }
+
+  // The closed form of a damped spring released from rest, at t seconds. Remotion
+  // integrates the same equation step by step; stepping an exact solution gives
+  // the exact solution, so values agree with Remotion's spring() to rounding.
+  function springProgress(t, { damping = 10, mass = 1, stiffness = 100 } = {}) {
+    if (t <= 0) return 0;
+    const w0 = Math.sqrt(stiffness / mass);
+    const z = damping / (2 * Math.sqrt(stiffness * mass));
+    const env = Math.exp(-z * w0 * t);
+    if (z < 1) {
+      const wd = w0 * Math.sqrt(1 - z * z);
+      return 1 - env * (Math.cos(wd * t) + ((z * w0) / wd) * Math.sin(wd * t));
+    }
+    if (z === 1) return 1 - env * (1 + w0 * t);
+    // overdamped: two decaying exponentials (the sinh/cosh form overflows on long springs)
+    const w1 = w0 * Math.sqrt(z * z - 1);
+    const r1 = -z * w0 + w1, r2 = -z * w0 - w1;
+    return 1 + (r2 * Math.exp(r1 * t) - r1 * Math.exp(r2 * t)) / (r1 - r2);
+  }
+  // frames until the spring stays within `threshold` of its target
+  function measureSpring({ fps = 30, config = {}, threshold = 0.005 } = {}) {
+    let f = 0;
+    while (Math.abs(1 - springProgress(f / fps, config)) >= threshold && f < fps * 120) f++;
+    let finished = f;
+    for (let i = 0; i < 20; i++) {
+      f++;
+      if (Math.abs(1 - springProgress(f / fps, config)) >= threshold) { i = 0; finished = f + 1; }
+    }
+    return finished;
+  }
+  function springFn({ frame, fps, config = {}, from = 0, to = 1, delay = 0, durationInFrames, reverse = false } = {}) {
+    if (fps === undefined) fps = fpsNow();
+    const cfg = { damping: 10, mass: 1, stiffness: 100, overshootClamping: false, ...config };
+    const natural = durationInFrames !== undefined || reverse ? measureSpring({ fps, config: cfg }) : undefined;
+    const length = durationInFrames ?? natural;
+    if (isFrame(frame)) {
+      const start = frames[0] - frame + delay;
+      note('spring', `s|${start}|${JSON.stringify(cfg)}|${durationInFrames}|${reverse}`, {
+        at: start / fps, dur: (length ?? measureSpring({ fps, config: cfg })) / fps,
+        ease: `spring(d${cfg.damping},m${cfg.mass},k${cfg.stiffness})`, custom: true, generic: false,
+      });
+    }
+    let f = frame - delay;
+    if (reverse) f = length - f;
+    if (durationInFrames !== undefined) f = f / (durationInFrames / natural);
+    let p = springProgress(f / fps, cfg);
+    if (cfg.overshootClamping) p = Math.min(p, 1);
+    return from + (to - from) * p;
+  }
+
+  function random(seed) {
+    if (seed === null || seed === undefined) throw new Error('random(seed): pass a seed so every render is identical');
+    const s = String(seed);
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+    return rng(h >>> 0)();
+  }
+
+  const useCurrentFrame = () => (frames.length ? frames[frames.length - 1] : 0);
+  const useVideoConfig = () => ({ fps: fpsNow(), durationInFrames: comp ? comp.durationInFrames : 0, width: innerWidth, height: innerHeight, id: comp ? comp.id : 'scene' });
+
+  function show(el, on) {
+    resolveTargets(el).forEach((e) => { e.style.display = on ? '' : 'none'; });
+  }
+  // Remotion's <Sequence from durationInFrames>: children see a frame that starts
+  // at 0, and do not exist outside their range (pass `el` to hide that element)
+  function Sequence({ from = 0, durationInFrames = Infinity, el } = {}, fn) {
+    const local = useCurrentFrame() - from;
+    const on = local >= 0 && local < durationInFrames;
+    if (el) show(el, on);
+    if (on && fn) {
+      frames.push(local);
+      try { fn(local); } finally { frames.pop(); }
+    }
+    return on;
+  }
+  // Remotion's <Series>: sequences back to back; `offset` overlaps (negative) or gaps them
+  function Series(items) {
+    let at = 0;
+    items.forEach((it) => {
+      at += it.offset || 0;
+      Sequence({ from: at, durationInFrames: it.durationInFrames, el: it.el }, it.render);
+      at += it.durationInFrames;
+    });
+    return at;
+  }
+  function Freeze({ frame }, fn) {
+    frames.push(frame);
+    try { fn(frame); } finally { frames.pop(); }
+  }
+  // sound inside a composition, at a frame of the current Sequence
+  function Sfx({ kind, from = 0, ...o }) {
+    if (recording) sfx((offset() + from) / fpsNow(), kind, o);
+  }
+  function Audio({ src, from = 0, volume = 1, startFrom = 0 }) {
+    if (recording) sfx((offset() + from) / fpsNow(), 'file', { src, gain: volume, trim: startFrom / fpsNow() });
+  }
+
+  // A scene written as render(frame): Remotion's mental model, our renderer.
+  function composition(c) {
+    if (!c || typeof c.render !== 'function') throw new Error('Motion.composition needs { durationInFrames, fps, render(frame) }');
+    if (!(c.durationInFrames > 0)) throw new Error('Motion.composition needs durationInFrames > 0');
+    comp = { id: c.id || 'scene', fps: c.fps || 30, durationInFrames: c.durationInFrames };
+    const renderAt = (f) => {
+      frames = [f];
+      try { c.render(f, useVideoConfig()); } finally { frames = []; }
+    };
+    const tl = {
+      duration: () => comp.durationInFrames / comp.fps,
+      // a whole frame number when the renderer asks for a frame; fractions only for motion-blur sub-frames
+      seek: (t) => renderAt(Math.round(t * comp.fps * 1e6) / 1e6),
+      __meta: registry.compMeta,
+    };
+    return mount(tl, {
+      duration: tl.duration(),
+      fps: comp.fps,
+      // walk every frame once so the linter sees each interpolate/spring and every sound is registered
+      beforeReport: () => {
+        recording = true;
+        try { for (let f = 0; f < comp.durationInFrames; f++) renderAt(f); } finally { recording = false; }
+        renderAt(0);
+      },
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* layout check: what a reviewer would catch on a still                */
+  /* ------------------------------------------------------------------ */
+  function inspect(t) {
+    const W = innerWidth, H = innerHeight, safe = 0.05;
+    const out = [];
+    const items = [];
+    const opacityOf = (el) => { let o = 1; for (let e = el; e && e.nodeType === 1; e = e.parentElement) { const cs = getComputedStyle(e); if (cs.display === 'none' || cs.visibility === 'hidden') return 0; o *= parseFloat(cs.opacity); } return o; };
+    const bgOf = (el) => { for (let e = el; e && e.nodeType === 1; e = e.parentElement) { const c = parseColor(getComputedStyle(e).backgroundColor); if (c && c[3] > 0.9) return c; } return null; };
+    const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+    document.querySelectorAll('body *').forEach((el) => {
+      if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE'].includes(el.tagName)) return;
+      const own = Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim());
+      if (!own) return;
+      const op = opacityOf(el);
+      if (op < 0.35) return;
+      // the text itself, not its box: a centred word in a full-width block is not at the edge
+      const range = document.createRange();
+      let r = null;
+      el.childNodes.forEach((n) => {
+        if (n.nodeType !== 3 || !n.textContent.trim()) return;
+        range.selectNodeContents(n);
+        const b = range.getBoundingClientRect();
+        if (b.width < 1) return;
+        r = r ? { left: Math.min(r.left, b.left), top: Math.min(r.top, b.top), right: Math.max(r.right, b.right), bottom: Math.max(r.bottom, b.bottom) } : { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+      });
+      if (!r) return;
+      r.width = r.right - r.left;
+      r.height = r.bottom - r.top;
+      // a clip-path that hides the text (a mask reveal not started yet) means it is not on screen
+      const clip = getComputedStyle(el).clipPath;
+      if (clip && /inset\(\s*0(px|%)?\s+100%/.test(clip)) return;
+      if (r.width < 2 || r.height < 2) return;
+      const cs = getComputedStyle(el);
+      const name = (el.id ? '#' + el.id : el.className && typeof el.className === 'string' ? '.' + el.className.split(/\s+/)[0] : el.tagName.toLowerCase()) + ` "${el.textContent.trim().slice(0, 24)}"`;
+      items.push({ el, r, name });
+      if (r.right < 0 || r.left > W || r.bottom < 0 || r.top > H) return; // parked off screen on purpose
+      if (r.left < -2 || r.top < -2 || r.right > W + 2 || r.bottom > H + 2) out.push({ code: 'TEXT_OFFSCREEN', what: name, t });
+      else if (r.left < W * safe || r.top < H * safe || r.right > W * (1 - safe) || r.bottom > H * (1 - safe)) out.push({ code: 'TEXT_OUTSIDE_SAFE', what: name, t });
+      const px = parseFloat(cs.fontSize);
+      if (px && px < H * 0.022 && op > 0.9) out.push({ code: 'TEXT_TINY', what: `${name} at ${Math.round(px)}px`, t });
+      const fg = parseColor(cs.color), bg = bgOf(el);
+      if (fg && bg) {
+        const a = lum(fg), b = lum(bg);
+        const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+        if (ratio < 3) out.push({ code: 'LOW_CONTRAST', what: `${name} ${ratio.toFixed(1)}:1`, t });
+      }
+    });
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = items[i], b = items[j];
+        if (a.el.contains(b.el) || b.el.contains(a.el)) continue;
+        const w = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left);
+        const h = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top);
+        if (w <= 0 || h <= 0) continue;
+        const small = Math.min(a.r.width * a.r.height, b.r.width * b.r.height);
+        if ((w * h) / small > 0.15) out.push({ code: 'TEXT_OVERLAP', what: `${a.name} and ${b.name}`, t });
+      }
+    }
+    return out;
+  }
+
   function mount(tls, opts = {}) {
     const list = Array.isArray(tls) ? tls : [tls];
     const duration = opts.duration ?? Math.max(...list.map((t) => t.duration()));
@@ -414,19 +742,31 @@
         list.forEach((tl) => tl.seek(t));
         if (opts.onSeek) opts.onSeek(t);
       },
-      report: () => ({
-        tweens: registry.timelines.flatMap((tl) => tl.__meta),
-        allow: registry.allow,
-        audit: audit(),
-        duration,
-      }),
+      inspect: (t) => inspect(t),
+      report: () => {
+        if (opts.beforeReport) opts.beforeReport();
+        return {
+          tweens: registry.timelines.flatMap((tl) => tl.__meta).concat(list.some((tl) => tl.__meta === registry.compMeta) ? registry.compMeta : []),
+          allow: registry.allow,
+          audit: audit(),
+          sfx: registry.cues,
+          duration,
+        };
+      },
     };
     list.forEach((tl) => tl.seek(0));
     return global.__motion;
   }
 
+  const Remotion = {
+    interpolate, interpolateColors, spring: springFn, measureSpring, Easing, random,
+    useCurrentFrame, useVideoConfig, Sequence, Series, Freeze, Sfx, Audio,
+  };
+  global.Remotion = Remotion;
+
   global.Motion = {
-    timeline, mount, ease, easeFactories, bezier: cubicBezier, spring, rng, noise, splitText, allow, clamp, lerp, parseColor,
+    timeline, mount, composition, ease, easeFactories, bezier: cubicBezier, spring, rng, noise, splitText, allow, clamp, lerp, parseColor,
+    sfx, beat, remotion: Remotion, inspect,
     // the project's edit brand, injected by `editemos motion render` before the scene runs
     get tokens() { return global.__EDITEMOS_TOKENS__ || {}; },
   };

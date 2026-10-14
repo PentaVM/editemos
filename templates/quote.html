@@ -45,7 +45,7 @@ const er = words[empIdx].getBoundingClientRect();
 const u = $('#under');
 css(u, { left: er.left + 'px', top: er.bottom - size * 0.08 + 'px', width: er.width + 'px', height: Math.max(3, 5 * S) + 'px', background: 'var(--accent)', transformOrigin: '0 50%' });
 const empAt = t0 + words.slice(0, empIdx).reduce((s) => s + D[0] * 1.15, 0);
-tl.fromTo('#under', { scaleX: 0 }, { scaleX: 1 }, { at: Math.max(t - D[0], empAt + D[1] * 0.6), dur: D[2], ease: E.travel });
+tl.fromTo('#under', { scaleX: 0 }, { scaleX: 1 }, { at: Math.max(t - D[0], empAt + D[1] * 0.6), dur: D[2], ease: E.travel, sfx: SND('whoosh', { gain: 0.4 }) });
 
 if (author) {
   css($('#author'), { left: left + 'px', top: q.getBoundingClientRect().bottom + size * 0.45 + 'px', fontSize: 24 * S + 'px', color: 'var(--muted)' });

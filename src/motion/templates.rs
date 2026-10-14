@@ -37,6 +37,10 @@ rs.setProperty('--h', `'${TY.heading}', 'Bahnschrift', sans-serif`);
 rs.setProperty('--b', `'${TY.body}', 'Bahnschrift', sans-serif`);
 rs.setProperty('--m', `'${TY.mono}', 'Cascadia Mono', Consolas, monospace`);
 const W0 = TY.weight_range[0], W1 = TY.weight_range[1];
+// sound on the moves that matter, as loud as the tempo; params.sound=false renders it silent
+const RS = Motion.rng(SEED + 101);
+const LOUD = TEMPO === 'punchy' ? 1 : TEMPO === 'calm' ? 0.45 : 0.7;
+const SND = (kind, o = {}) => (P.sound === false ? undefined : Object.assign({ kind, pitch: 0.92 + 0.16 * RS() }, o, { gain: LOUD * (o.gain ?? 1) }));
 "#;
 
 const HEAD: &str = r#"<!doctype html><html><head><meta charset="utf-8"><title>editemos scene</title><style>

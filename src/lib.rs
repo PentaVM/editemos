@@ -22,6 +22,7 @@ pub mod memory;
 pub mod model;
 pub mod motion;
 pub mod ops;
+pub mod reference;
 pub mod session;
 pub mod skills;
 pub mod store;

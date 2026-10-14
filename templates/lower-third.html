@@ -38,16 +38,16 @@ for (let i = 0; i < nTicks; i++) {
 const t0 = D[0] * 0.7;
 const tl = Motion.timeline();
 tl.fromTo('#rule', { scaleX: 0 }, { scaleX: 1 }, { at: t0, dur: D[2], ease: E.travel });
-tl.fromTo('#mark', { scale: 0 }, { scale: 1 }, { at: t0, dur: D[1], ease: E.impact });
-tl.fromTo('#name', { yPercent: 110 }, { yPercent: 0 }, { at: t0 + D[0], dur: D[1], ease: E.enter });
-if (role) tl.fromTo('#role', { clipR: 100 }, { clipR: 0 }, { at: t0 + D[0] + D[1] * 0.7, dur: D[1], ease: E.enter });
+tl.fromTo('#mark', { scale: 0 }, { scale: 1 }, { at: t0, dur: D[1], ease: E.impact, sfx: SND('pop', { gain: 0.6 }) });
+tl.fromTo('#name', { yPercent: 110 }, { yPercent: 0 }, { at: t0 + D[0], dur: D[1], ease: E.enter, sfx: SND('whoosh', { gain: 0.45 }) });
+if (role) tl.fromTo('#role', { clipR: 100 }, { clipR: 0 }, { at: t0 + D[0] + D[1] * 0.7, dur: D[1], ease: E.enter, sfx: SND('tick', { gain: 0.6 }) });
 
 // ticks appear as hard events, stepped: "on twos" regardless of the project's fps
 const tickTl = Motion.timeline({ step: STEP || 1 / 15 });
 ticks.forEach((t, i) => tickTl.fromTo(t, { opacity: 0 }, { opacity: 1 }, { at: t0 + D[0] * 0.5 + i * (D[2] / nTicks), dur: 0, ease: 'hold' }));
 
 const hold = t0 + D[0] + D[1] + HOLD + (P.hold || D[3]);
-tl.to('#name', { yPercent: -110 }, { at: hold, dur: D[1] * 0.75, ease: E.exit });
+tl.to('#name', { yPercent: -110 }, { at: hold, dur: D[1] * 0.75, ease: E.exit, sfx: SND('whoosh', { gain: 0.3 }) });
 tl.to('#role', { clipL: 100 }, { at: hold, dur: D[1] * 0.6, ease: E.exit });
 tl.to('#rule', { scaleX: 0 }, { at: hold + D[0], dur: D[1] * 0.75, ease: E.exit });
 tl.to('#mark', { scale: 0 }, { at: hold + D[0], dur: D[0], ease: E.exit });

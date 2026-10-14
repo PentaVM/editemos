@@ -301,6 +301,34 @@ pub struct Overlay {
     pub start: f64,
     pub end: f64,
     pub text: String,
+    /// Drawn as a headline above the label box instead of inside it.
+    pub head: bool,
+}
+
+/// The title and the labels of a clip, in clip time. A clip without labels shows
+/// its title in the label box; once any segment carries a label (score, clock,
+/// who), the title moves to a headline above the box for the whole clip, so the
+/// labels never hide it.
+pub fn overlays_for(pieces: &[Segment], title: Option<&str>, total: f64) -> Vec<Overlay> {
+    let title = title.map(str::trim).filter(|x| !x.is_empty());
+    let mut overlays: Vec<Overlay> = Vec::new();
+    let mut t = 0.0;
+    for p in pieces {
+        let d = p.end - p.start;
+        if let Some(l) = p.label.as_ref().filter(|l| !l.trim().is_empty()) {
+            // consecutive pieces with the same label are one label
+            match overlays.last_mut() {
+                Some(prev) if prev.text == *l && (prev.end - t).abs() < 0.05 => prev.end = t + d,
+                _ => overlays.push(Overlay { start: t, end: t + d, text: l.clone(), head: false }),
+            }
+        }
+        t += d;
+    }
+    if let Some(title) = title {
+        let head = !overlays.is_empty();
+        overlays.insert(0, Overlay { start: 0.0, end: total, text: title.to_string(), head });
+    }
+    overlays
 }
 
 /// The subtitle file: word-by-word captions, the title and the labels.
@@ -321,7 +349,8 @@ pub fn ass(words: &[Word], overlays: &[Overlay], st: &Style, w: u32, h: u32, lay
     let mut s = format!(
         "[Script Info]\nScriptType: v4.00+\nPlayResX: {w}\nPlayResY: {h}\nWrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n\
          Style: Cap,{font},{cap_size},{rest},{rest},{outline},&H90000000,0,0,0,0,100,100,0,0,1,{ow},{sh},5,50,50,50,1\n\
-         Style: Box,{font},{box_size},{on},{on},{acc},{acc},0,0,0,0,100,100,0,0,3,{pad},0,5,70,70,50,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
+         Style: Box,{font},{box_size},{on},{on},{acc},{acc},0,0,0,0,100,100,0,0,3,{pad},0,5,70,70,50,1\n\
+         Style: Head,{font},{head_size},{fg},{fg},{outline},&H90000000,0,0,0,0,100,100,0,0,1,{how},{sh},5,60,60,50,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
         font = st.font,
         rest = ass_colour(rest),
         outline = ass_colour(st.bg),
@@ -330,14 +359,23 @@ pub fn ass(words: &[Word], overlays: &[Overlay], st: &Style, w: u32, h: u32, lay
         on = ass_colour(on_accent),
         acc = ass_colour(st.accent),
         pad = (box_size * 0.28).round(),
+        head_size = (cap_size * 0.82).round(),
+        fg =ass_colour(st.fg),
+        how = (cap_size * 0.06).round().max(2.0),
     );
+    // the headline sits above the label box; near the top edge (landscape) the box moves down instead
+    let gap = box_size * 1.9;
+    let head_size = (cap_size * 0.82).round();
+    let has_head = overlays.iter().any(|o| o.head);
+    let (head_y, label_y) = if !has_head || box_y - gap >= head_size { (box_y - gap, box_y) } else { (box_y, box_y + gap) };
     for o in overlays {
+        let (style, y) = if o.head { ("Head", head_y) } else { ("Box", label_y) };
         s.push_str(&format!(
-            "Dialogue: 1,{},{},Box,,0,0,0,,{{\\pos({:.0},{:.0})\\fad(80,60)}}{}\n",
+            "Dialogue: 1,{},{},{style},,0,0,0,,{{\\pos({:.0},{:.0})\\fad(80,60)}}{}\n",
             ass_time(o.start),
             ass_time(o.end),
             wf / 2.0,
-            box_y,
+            y,
             ass_text(&o.text, st.caps)
         ));
     }
@@ -545,28 +583,7 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
         }
     }
 
-    // overlays: the title for the whole clip, replaced by a label while one is set
-    let mut overlays: Vec<Overlay> = Vec::new();
-    let mut t = 0.0;
-    let mut title_from = 0.0;
-    for p in &pieces {
-        let d = p.end - p.start;
-        if let Some(l) = p.label.as_ref().filter(|l| !l.trim().is_empty()) {
-            if let Some(title) = story.title.as_ref().filter(|_| t - title_from > 0.2) {
-                overlays.push(Overlay { start: title_from, end: t, text: title.clone() });
-            }
-            // consecutive pieces with the same label are one label
-            match overlays.last_mut() {
-                Some(prev) if prev.text == *l && (prev.end - t).abs() < 0.05 => prev.end = t + d,
-                _ => overlays.push(Overlay { start: t, end: t + d, text: l.clone() }),
-            }
-            title_from = t + d;
-        }
-        t += d;
-    }
-    if let Some(title) = story.title.as_ref().filter(|x| !x.trim().is_empty() && total - title_from > 0.2) {
-        overlays.push(Overlay { start: title_from, end: total, text: title.clone() });
-    }
+    let overlays = overlays_for(&pieces, story.title.as_deref(), total);
 
     if let Some(dir) = &o.style.fonts_dir {
         if let Ok(rd) = std::fs::read_dir(dir) {
@@ -859,7 +876,7 @@ mod tests {
         let lines = caption_lines(&words, 3);
         assert_eq!(lines.iter().map(|l| l.len()).collect::<Vec<_>>(), vec![3, 1, 1], "three words, then the sentence end, then the pause");
         let st = Style { font: "Anton".into(), accent: Rgb(255, 230, 0), ..Default::default() };
-        let file = ass(&words, &[Overlay { start: 0.0, end: 2.0, text: "he had no idea".into() }], &st, 1080, 1920, "fit");
+        let file = ass(&words, &[Overlay { start: 0.0, end: 2.0, text: "he had no idea".into(), head: false }], &st, 1080, 1920, "fit");
         assert!(file.contains("Style: Cap,Anton,") && file.contains("PlayResY: 1920"));
         assert!(file.contains("HE HAD NO IDEA"), "title in the label box, in capitals");
         assert_eq!(file.matches("Dialogue: 0,").count(), 5, "one event per spoken word");
@@ -867,6 +884,30 @@ mod tests {
         // monochrome brand: the others are dimmed instead
         let mono = ass(&words, &[], &Style { accent: Rgb(250, 250, 250), fg: Rgb(250, 250, 250), ..Default::default() }, 1080, 1920, "fit");
         assert!(mono.contains("Style: Cap,Arial,100,&H00969696"), "{}", mono.lines().find(|l| l.starts_with("Style: Cap")).unwrap_or(""));
+    }
+
+    #[test]
+    fn labels_never_hide_the_title() {
+        let seg = |s: f64, e: f64, l: Option<&str>| Segment { start: s, end: e, label: l.map(String::from), ..Default::default() };
+        // no labels: the title lives in the label box for the whole clip
+        let o = overlays_for(&[seg(0.0, 5.0, None), seg(10.0, 14.0, None)], Some("Five minutes. One goal."), 9.0);
+        assert_eq!(o.len(), 1);
+        assert!(!o[0].head && o[0].end == 9.0);
+        // every segment labelled: the title becomes a headline over all of it
+        let o = overlays_for(&[seg(0.0, 5.0, Some("5:00  0-0")), seg(10.0, 14.0, Some("0:51  0-1"))], Some("Five minutes. One goal."), 9.0);
+        assert_eq!(o.len(), 3);
+        assert!(o[0].head && o[0].start == 0.0 && o[0].end == 9.0);
+        assert!(!o[1].head && o[2].start == 5.0);
+        let st = Style { font: "Anton".into(), ..Default::default() };
+        let portrait = ass(&[], &o, &st, 1080, 1920, "fit");
+        assert!(portrait.contains(",Head,,") && portrait.contains("FIVE MINUTES"));
+        // landscape: the headline takes the top and the labels move down, nothing off screen
+        let wide = ass(&[], &o, &st, 1920, 1080, "crop");
+        let y = |kind: &str| -> f64 {
+            let l = wide.lines().find(|l| l.contains(kind) && l.contains("\\pos(")).unwrap();
+            l.split("\\pos(").nth(1).unwrap().split(')').next().unwrap().split(',').nth(1).unwrap().parse().unwrap()
+        };
+        assert!(y(",Head,,") > 40.0 && y(",Box,,") > y(",Head,,"));
     }
 
     #[test]

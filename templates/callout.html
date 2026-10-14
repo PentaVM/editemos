@@ -32,11 +32,11 @@ $('#label').textContent = label;
 
 const tl = Motion.timeline();
 const t0 = D[0] * 0.7;
-tl.fromTo('#core', { scale: 0 }, { scale: 1 }, { at: t0, dur: D[1], ease: E.impact });
+tl.fromTo('#core', { scale: 0 }, { scale: 1 }, { at: t0, dur: D[1], ease: E.impact, sfx: SND('pop', { gain: 0.7 }) });
 core.style.transformOrigin = `${tx}px ${ty}px`; dot.style.transformOrigin = `${tx}px ${ty}px`;
 tl.fromTo('#dot', { scale: 0, opacity: 1 }, { scale: 1 }, { at: t0 + D[0] * 0.5, dur: D[2], ease: E.impact });
 tl.fromTo(path, { 'attr:stroke-dashoffset': len + 40 }, { 'attr:stroke-dashoffset': 0 }, { at: t0 + D[0], dur: D[2], ease: E.travel });
-tl.fromTo('#label', { yPercent: 110 }, { yPercent: 0 }, { at: t0 + D[0] + D[2] * 0.55, dur: D[1], ease: E.enter });
+tl.fromTo('#label', { yPercent: 110 }, { yPercent: 0 }, { at: t0 + D[0] + D[2] * 0.55, dur: D[1], ease: E.enter, sfx: SND('tick', { gain: 0.6 }) });
 
 const outAt = t0 + D[0] + D[2] + D[1] + HOLD + D[3];
 tl.to(path, { 'attr:stroke-dashoffset': -(len + 40) }, { at: outAt, dur: D[2] * 0.75, ease: E.exit });

@@ -103,6 +103,9 @@ STORY CLIPS (edited, not just cut out)
   clips build <recording> --spec-file plan.json       build a plan you or your agent wrote
         segments in any order, pauses removed, word-by-word captions from the clip's own audio,
         a title, context flashes found by what was said, natural or punchline endings
+  reference <video or link> [--name N]                reverse-engineer an edit: cut rhythm, grade, loudness
+  reference compare <name> <our cut>                  where our cut matches it and what to change
+  reference apply <name> | reference list             adopt its tempo in the edit brand
   fonts [show|list] | fonts set <family> [--global] | fonts reject <family> [--global] [--reason R]
   tools install-whisper                               accurate captions, on this machine
   memory add \"...\" --global                           a preference for every project
@@ -832,6 +835,28 @@ fn run(argv: &[String]) -> Result<()> {
                 }
                 _ => println!("{}", pretty(&r)),
             }
+        }
+        "reference" => {
+            match sub {
+                "list" => put(&mut m, "action", "list"),
+                "compare" => {
+                    let (Some(r), Some(f)) = (a.pos.get(2), a.pos.get(3)) else { return fail("reference compare <reference name> <our cut>") };
+                    put(&mut m, "action", "compare");
+                    put(&mut m, "reference", r.clone());
+                    put(&mut m, "file", f.clone());
+                }
+                "apply" => {
+                    let Some(r) = a.pos.get(2) else { return fail("reference apply <reference name>") };
+                    put(&mut m, "action", "apply");
+                    put(&mut m, "reference", r.clone());
+                }
+                _ => {
+                    let Some(f) = a.pos.get(1) else { return fail("reference <video file or link> [--name N] [--section \"*00:10:00-00:12:00\"]") };
+                    put(&mut m, "action", "analyse");
+                    put(&mut m, "file", f.clone());
+                }
+            }
+            println!("{}", pretty(&ctx.reference_op(&Value::Object(m))?));
         }
         "fonts" => {
             put(&mut m, "action", if sub.is_empty() { "show" } else { sub });

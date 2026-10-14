@@ -80,6 +80,17 @@ pub struct RenderResult {
     pub lint: Vec<Issue>,
     pub contact: Option<String>,
     pub frames_dir: Option<String>,
+    /// The moments the scene settles (moves end), checked for layout and shown in `review`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub checkpoints: Vec<f64>,
+    /// One frame per checkpoint, in order: what a reviewer should look at.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review: Option<String>,
+    /// Sound cues the scene declared (synthesised and muxed into the render).
+    pub cues: usize,
+    /// The soundtrack, when there is one (inside the video; a .wav for png sequences).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio: Option<String>,
 }
 
 pub fn find_ffmpeg() -> Option<PathBuf> {
@@ -191,13 +202,19 @@ fn encode(ffmpeg: &Path, frames: &Path, k: u32, fps: f64, format: &str, out: &Pa
     run_ffmpeg(ffmpeg, &args, format)
 }
 
+/// Frames spread evenly over the scene, one per cell.
+fn uniform_frames(total: u32, n: u32) -> Vec<u32> {
+    (0..n).map(|j| (((j as f64 + 0.5) / n as f64 * total as f64 - 0.5).round() as i64).clamp(0, total as i64 - 1) as u32).collect()
+}
+
 #[allow(clippy::too_many_arguments)]
-fn contact_sheet(ffmpeg: &Path, frames: &Path, k: u32, total: u32, w: u32, h: u32, grid: (u32, u32), over: Option<&Path>, out: &Path) -> Result<()> {
+fn contact_sheet(ffmpeg: &Path, frames: &Path, k: u32, pick_frames: &[u32], w: u32, h: u32, grid: (u32, u32), over: Option<&Path>, out: &Path) -> Result<()> {
     let n = grid.0 * grid.1;
     let pick = std::env::temp_dir().join(format!("editemos-pick-{}", short_id()));
     fs::create_dir_all(&pick)?;
     for j in 0..n {
-        let i = (((j as f64 + 0.5) / n as f64 * total as f64 - 0.5).round() as i64).clamp(0, total as i64 - 1) as u32;
+        // a grid larger than the list repeats the last frame rather than leaving a hole
+        let i = pick_frames.get(j as usize).or(pick_frames.last()).copied().unwrap_or(0);
         let src = frames.join(format!("f_{:07}.png", i * k + (k >> 1) + 1));
         fs::copy(&src, pick.join(format!("p_{:03}.png", j + 1)))?;
     }
@@ -216,6 +233,137 @@ fn contact_sheet(ffmpeg: &Path, frames: &Path, k: u32, total: u32, w: u32, h: u3
     let r = run_ffmpeg(ffmpeg, &args, "contact sheet");
     let _ = fs::remove_dir_all(&pick);
     r
+}
+
+/// When the scene comes to rest: a couple of frames after each move ends, merged
+/// when close together, always including the last frame. These are the stills a
+/// reviewer judges (is the text readable, did everything land before the next
+/// thing appeared) and where the layout is checked.
+pub fn checkpoints(report: &Value, duration: f64, fps: f64, max: usize) -> Vec<f64> {
+    let last = (duration - 1.0 / fps).max(0.0);
+    let mut ends: Vec<f64> = report
+        .get("tweens")
+        .and_then(|t| t.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|t| {
+                    let at = t.get("at")?.as_f64()?;
+                    let dur = t.get("dur")?.as_f64()?;
+                    (dur > 0.0).then_some(at + dur)
+                })
+                .filter(|e| *e > 0.0 && *e < duration)
+                .map(|e| (e + 2.0 / fps).min(last))
+                .collect()
+        })
+        .unwrap_or_default();
+    ends.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mut kept: Vec<f64> = Vec::new();
+    for e in ends {
+        if kept.last().map(|l| e - l >= 0.25).unwrap_or(true) {
+            kept.push(e);
+        }
+    }
+    if kept.last().map(|l| last - l >= 0.25).unwrap_or(true) {
+        kept.push(last);
+    }
+    if kept.len() == 1 && last > 0.5 {
+        kept.insert(0, duration * 0.5);
+    }
+    if kept.len() > max && max >= 2 {
+        let n = kept.len();
+        kept = (0..max).map(|j| kept[j * (n - 1) / (max - 1)]).collect();
+    }
+    kept.into_iter().map(|t| (t * 1000.0).round() / 1000.0).collect()
+}
+
+fn inspect_issues(page: &mut Cdp, times: &[f64], allow: &Value) -> Result<Vec<Issue>> {
+    let mut seen: Vec<(String, String)> = Vec::new();
+    let mut out = Vec::new();
+    for t in times {
+        page.eval(&format!("window.__motion.seek({t:.6})"), true)?;
+        page.eval(RAF2, true)?;
+        let v = page.eval(&format!("JSON.stringify(window.__motion.inspect ? window.__motion.inspect({t:.3}) : [])"), false)?;
+        let list: Vec<Value> = v.as_str().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default();
+        for x in list {
+            let code = x["code"].as_str().unwrap_or("").to_string();
+            let what = x["what"].as_str().unwrap_or("").to_string();
+            if code.is_empty() || seen.iter().any(|(c, w)| *c == code && *w == what) {
+                continue;
+            }
+            seen.push((code.clone(), what.clone()));
+            let message = match code.as_str() {
+                "TEXT_OFFSCREEN" => format!("{what} is cut by the frame edge at {t:.2}s"),
+                "TEXT_OUTSIDE_SAFE" => format!("{what} sits outside the 5% safe margin at {t:.2}s (platform UI and overscan cover it)"),
+                "TEXT_OVERLAP" => format!("{what} overlap at {t:.2}s"),
+                "TEXT_TINY" => format!("{what} is too small to read on a phone at {t:.2}s"),
+                "LOW_CONTRAST" => format!("{what} contrast against its own background at {t:.2}s (needs 3:1 or more)"),
+                _ => format!("{what} at {t:.2}s"),
+            };
+            let level = if code == "TEXT_OFFSCREEN" { "error" } else { "warn" };
+            match allow.get(&code).and_then(|r| r.as_str()) {
+                Some(why) => out.push(Issue { level: "info".into(), code, message: format!("{message} (allowed: {why})") }),
+                None => out.push(Issue { level: level.into(), code, message }),
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Mix the scene's sound (synthesised cues plus any audio files it placed) and
+/// put it into the render. Returns where the sound ended up.
+fn add_sound(ffmpeg: &Path, cues: &[super::sound::Cue], scene: &Path, duration: f64, format: &str, out: &Path, issues: &mut Vec<Issue>) -> Result<Option<PathBuf>> {
+    if cues.is_empty() {
+        return Ok(None);
+    }
+    let tmp = TempDir { path: std::env::temp_dir().join(format!("editemos-sound-{}", short_id())), keep: false };
+    fs::create_dir_all(&tmp.path)?;
+    let bed = tmp.path.join("synth.wav");
+    super::sound::write_wav(&bed, &super::sound::mix(cues, duration))?;
+    let base = scene.parent().unwrap_or(Path::new("."));
+    let mut args: Vec<String> = Vec::new();
+    let is_seq = format == "pngseq";
+    if !is_seq {
+        args.extend(["-i".into(), path_str(out)]);
+    }
+    args.extend(["-i".into(), path_str(&bed)]);
+    let first_audio = if is_seq { 0 } else { 1 };
+    let mut graph = String::new();
+    let mut labels = format!("[{first_audio}:a]");
+    let mut n_inputs = 1;
+    for c in cues.iter().filter(|c| c.kind == "file") {
+        let Some(src) = c.src.as_ref() else { continue };
+        let p = if Path::new(src).is_absolute() { PathBuf::from(src) } else { base.join(src) };
+        if !p.exists() {
+            issues.push(Issue { level: "warn".into(), code: "SFX_FILE_MISSING".into(), message: format!("audio file not found, left out: {}", p.display()) });
+            continue;
+        }
+        if let Some(trim) = c.trim.filter(|t| *t > 0.0) {
+            args.extend(["-ss".into(), format!("{trim:.3}")]);
+        }
+        args.extend(["-i".into(), path_str(&p)]);
+        let idx = first_audio + n_inputs;
+        let ms = (c.at * 1000.0).round().max(0.0) as i64;
+        graph.push_str(&format!("[{idx}:a]aresample={},aformat=channel_layouts=stereo,adelay={ms}|{ms},volume={:.3}[f{idx}];", super::sound::RATE, c.gain));
+        labels.push_str(&format!("[f{idx}]"));
+        n_inputs += 1;
+    }
+    let mixed = if n_inputs > 1 { format!("{graph}{labels}amix=inputs={n_inputs}:normalize=0:duration=first[a]") } else { format!("[{first_audio}:a]anull[a]") };
+    args.extend(["-filter_complex".into(), mixed]);
+    if is_seq {
+        let wav = out.join("audio.wav");
+        args.extend(["-map".into(), "[a]".into(), "-c:a".into(), "pcm_s16le".into(), path_str(&wav)]);
+        run_ffmpeg(ffmpeg, &args, "sound")?;
+        return Ok(Some(wav));
+    }
+    let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("mov").to_string();
+    let muxed = tmp.path.join(format!("muxed.{ext}"));
+    let codec: &[&str] = if format == "vp9" { &["-c:a", "libopus", "-b:a", "160k"] } else { &["-c:a", "pcm_s16le"] };
+    args.extend(["-map".into(), "0:v".into(), "-map".into(), "[a]".into(), "-c:v".into(), "copy".into()]);
+    args.extend(codec.iter().map(|s| s.to_string()));
+    args.extend(["-t".into(), format!("{duration:.4}"), path_str(&muxed)]);
+    run_ffmpeg(ffmpeg, &args, "sound")?;
+    fs::copy(&muxed, out)?;
+    Ok(Some(out.to_path_buf()))
 }
 
 /// A temporary folder that is removed on drop (also on early error returns).
@@ -377,6 +525,10 @@ pub fn render(o: &RenderOptions) -> Result<RenderResult> {
             lint: Vec::new(),
             contact: None,
             frames_dir: None,
+            checkpoints: Vec::new(),
+            review: None,
+            cues: 0,
+            audio: None,
         });
     }
 
@@ -388,7 +540,12 @@ pub fn render(o: &RenderOptions) -> Result<RenderResult> {
     let total = ((duration * o.fps).round() as u32).max(1);
 
     let report = scene_report(&mut page)?;
-    let issues = if o.lint { lint(&report, o.fps) } else { Vec::new() };
+    let mut issues = if o.lint { lint(&report, o.fps) } else { Vec::new() };
+    let cues: Vec<super::sound::Cue> = report.get("sfx").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+    let marks = checkpoints(&report, duration, o.fps, 6);
+    if o.lint {
+        issues.extend(inspect_issues(&mut page, &marks, &report["allow"])?);
+    }
     if o.strict && issues.iter().any(|i| i.level == "error") {
         let msg: Vec<String> = issues.iter().filter(|i| i.level == "error").map(|i| format!("{}: {}", i.code, i.message)).collect();
         return fail(format!("lint errors (strict): {}", msg.join(" | ")));
@@ -442,16 +599,29 @@ pub fn render(o: &RenderOptions) -> Result<RenderResult> {
         fs::read_dir(&frames.path)?.flatten().filter_map(|e| e.metadata().ok()).map(|m| m.len()).sum()
     };
     crate::util::trace("render: encoded");
+    let audio = add_sound(ffmpeg.as_ref().unwrap(), &cues, &scene, duration, &format, &o.out, &mut issues)?.map(|p| path_str(&p));
 
-    let mut contact = None;
-    if let (Some(grid), Some(ff)) = (o.contact, ffmpeg.as_ref()) {
-        let out = if is_seq {
-            o.out.with_file_name(format!("{}.contact.png", o.out.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()))
+    let side = |suffix: &str| {
+        if is_seq {
+            o.out.with_file_name(format!("{}.{suffix}", o.out.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()))
         } else {
-            o.out.with_extension("contact.png")
-        };
-        contact_sheet(ff, &frames.path, k, total, o.width, o.height, grid, o.over.as_deref(), &out)?;
+            o.out.with_extension(suffix)
+        }
+    };
+    let mut contact = None;
+    let mut review = None;
+    if let (Some(grid), Some(ff)) = (o.contact, ffmpeg.as_ref()) {
+        let out = side("contact.png");
+        contact_sheet(ff, &frames.path, k, &uniform_frames(total, grid.0 * grid.1), o.width, o.height, grid, o.over.as_deref(), &out)?;
         contact = Some(path_str(&out));
+        if !marks.is_empty() {
+            let idx: Vec<u32> = marks.iter().map(|t| ((t * o.fps).round() as i64).clamp(0, total as i64 - 1) as u32).collect();
+            let n = idx.len() as u32;
+            let g = if n <= 3 { (n, 1) } else { (3, n.div_ceil(3)) };
+            let out = side("review.png");
+            contact_sheet(ff, &frames.path, k, &idx, o.width, o.height, g, o.over.as_deref(), &out)?;
+            review = Some(path_str(&out));
+        }
     }
     let kept = if o.keep_frames && !is_seq { Some(path_str(&frames.path)) } else { None };
     Ok(RenderResult {
@@ -470,12 +640,30 @@ pub fn render(o: &RenderOptions) -> Result<RenderResult> {
         lint: issues,
         contact,
         frames_dir: kept,
+        checkpoints: marks,
+        review,
+        cues: cues.len(),
+        audio,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checkpoints_follow_the_moves() {
+        let r = serde_json::json!({"tweens": [{"at": 0.1, "dur": 0.4}, {"at": 0.12, "dur": 0.42}, {"at": 1.0, "dur": 0.6}, {"at": 2.0, "dur": 0.0}]});
+        // two moves ending together are one still; a hard set is not a move; the last frame is always checked
+        assert_eq!(checkpoints(&r, 3.0, 30.0, 6), vec![0.567, 1.667, 2.967]);
+        let many: Vec<Value> = (0..20).map(|i| serde_json::json!({"at": i as f64 * 0.4, "dur": 0.2})).collect();
+        let c = checkpoints(&serde_json::json!({ "tweens": many }), 9.0, 30.0, 6);
+        assert_eq!(c.len(), 6);
+        assert_eq!(c[0], 0.267);
+        assert_eq!(*c.last().unwrap(), 8.967);
+        // nothing moves: the middle and the end
+        assert_eq!(checkpoints(&serde_json::json!({}), 4.0, 25.0, 6), vec![2.0, 3.96]);
+    }
 
     #[test]
     fn ntsc_rates() {

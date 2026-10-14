@@ -43,9 +43,27 @@ You have the `editemos_*` MCP tools. If they are not connected, the same operati
   Asking for the same graphic again returns the existing one (`reused: true`). Adapt a scene file
   instead of writing a second script that does the same job. One piece of work, one file.
 - **Motion graphics:** `editemos_motion action=new kind=title|lower-third|quote|chapter|callout|caption`,
-  then `lint`, then `render` (ProRes 4444 with alpha, or WebM). Look at the contact sheet it returns.
-  Fix every linter `error` or justify it with `Motion.allow(code, reason)`. No fade-plus-slide-up,
-  no rounded lower third with an accent bar, no single easing for everything.
+  then `lint`, then `render` (ProRes 4444 with alpha, or WebM). Fix every linter `error` or
+  justify it with `Motion.allow(code, reason)`. No fade-plus-slide-up, no rounded lower third
+  with an accent bar, no single easing for everything.
+  - Writing a scene by hand: write it the Remotion way, without React:
+    `Motion.composition({durationInFrames, fps, render(frame)})` with `interpolate`, `spring`,
+    `Sequence`, `Series`, `Easing` from `Remotion` (same names, same maths). Read the
+    `motion-remotion` guide first (`editemos_skills action=read name=motion-remotion`).
+  - Sound belongs to the motion: `sfx: 'whoosh'` on a tween, `Sfx({kind})` in a Sequence,
+    `Motion.sfx(seconds, kind)`. The render synthesises it and puts it in the video.
+  - **Review every render.** It returns `review`: one still per moment the scene comes to rest,
+    plus layout findings there (text off the frame, outside the safe margin, overlapping, too
+    small, low contrast). Look at the stills, over a real footage frame (`over=`), fix the
+    scene file and render again. Two rounds at most, then show the user.
+- **"Make it like this video":** `editemos_reference file=<video or link> name=<n>` measures its
+  cut rhythm, grade and loudness, with evidence and a list of what could not be measured, and
+  a sheet with a frame per shot. Read the sheet for what numbers miss (type, graphics, camera).
+  `action=apply` adopts its tempo; after building, `action=compare reference=<n> file=<our cut>`
+  says trait by trait what still differs. Never say a cut matches a reference without comparing.
+- **Craft guides** ship with editemos: `cutting`, `story-shorts`, `sound-design`, `color-grade`,
+  `camera-language`, `generative-video`, `motion-remotion`, `reverse-engineer-a-reference`
+  (`editemos_skills action=read name=<guide>`). Read the one that fits before a task of that kind.
 - **Clips from a long recording:** `editemos_clips file=<stream> count=5 aspect=9:16`. It listens to
   the whole file in seconds, picks the moments, cuts on pauses and exports them framed. `file` may
   be a link (needs yt-dlp; use `section` for part of a long stream). Use `layout=fit` for gameplay

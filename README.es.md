@@ -38,7 +38,15 @@ pides algo que ya hicieron.
   escribe como `CLAUDE.md`, `AGENTS.md` y `GEMINI.md`.
 - **Motion graphics sin After Effects**: escenas HTML renderizadas cuadro a cuadro con tu propio
   Chromium y codificadas con ffmpeg a ProRes 4444, QuickTime Animation o WebM, con alfa y motion
-  blur real. Un linter rechaza el movimiento genérico.
+  blur real. Las escenas se pueden escribir como en Remotion (`interpolate`, `spring`,
+  `Sequence`, mismos nombres y misma matemática, sin React), llevan su propio sonido sintetizado
+  pegado al movimiento, y cada render se revisa en cada punto donde la escena se asienta. Un
+  linter rechaza el movimiento genérico.
+- **Ingeniería inversa de una referencia**: le das un video cuyo montaje quieres; mide el ritmo
+  de cortes, el color y el volumen con sus pruebas, dice lo que no puede medir, y compara tu
+  corte contra él rasgo por rasgo (`editemos reference`).
+- **Guías de oficio incluidas**: cortes, historia en shorts, diseño sonoro, color, lenguaje de
+  cámara, video generativo, motion estilo Remotion, cómo imitar una referencia.
 - **Modo clips**: le pasas un stream; escucha toda la grabación cientos de veces más rápido que
   en tiempo real, elige los momentos, corta en las pausas y exporta en vertical.
 - **Kdenlive**: lo abre, lee el proyecto, inserta renders en una copia versionada, saca
@@ -158,7 +166,12 @@ Versión 0.1, con 54 tests. Límites, dichos sin rodeos:
 
 - Desarrollado y medido en Windows. Linux y macOS compilan y pasan la suite en CI, pero la
   detección de ventanas de Kdenlive ahí depende de `wmctrl` o AppleScript y se ha usado mucho menos.
-- El modo clips puntúa por sonido (y palabras, si hay transcripción). No mira la imagen.
+- El modo clips puntúa por sonido (y palabras, si hay transcripción). La imagen la mira el
+  agente, con `clips look` y la hoja de revisión.
+- La capa Remotion trae las funciones de Remotion, no React: JSX y los paquetes `@remotion/*`
+  no corren en una escena. `random(seed)` es determinista pero no da los mismos números.
+- `reference` detecta solo cortes duros; los fundidos pueden quedar escondidos dentro de un plano,
+  y el tempo de la música no se mide.
 - Insertar un clip en un proyecto de Kdenlive (`overlay`) se verifica renderizando con melt y
   sigue marcado como experimental.
 - `editemos session` abre la ventana, pero no la coloca en un monitor concreto.

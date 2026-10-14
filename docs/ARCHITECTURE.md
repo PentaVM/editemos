@@ -48,6 +48,28 @@ The linter reads the tweens the scene actually declared and flags the defaults e
 every model reaches for: stock easings, one duration for everything, fade plus small slide,
 bounce, default fonts.
 
+A scene is either a timeline (`Motion.timeline().fromTo(...)`) or a Remotion-style
+composition (`Motion.composition({durationInFrames, fps, render(frame)})` with `interpolate`,
+`spring`, `Sequence`, `Series`, `Easing`). Before the report is read, a composition is walked
+frame by frame once, so every `interpolate`/`spring` call site becomes one tween the linter can
+judge, and every sound cue inside a `Sequence` is registered at its absolute time.
+
+Sound cues (`report.sfx`) are synthesised in Rust (`motion/sound.rs`: seeded noise, filters and
+oscillators, 48 kHz stereo), audio files a scene places are mixed by ffmpeg, and the result is
+muxed into the render without re-encoding the picture.
+
+Review: from the tweens the renderer computes the moments the scene comes to rest (a couple of
+frames after each move ends, merged when close, plus the last frame). At each one it asks the
+page to inspect its text (off the frame, outside the safe margin, overlapping, too small, low
+contrast) and puts one still per moment in `review.png` for the agent to judge.
+
+## Reference pipeline
+
+`reference.rs` decodes the whole video once at a low rate into 64x36 frames (in memory, raw
+RGB), detects hard cuts with ffmpeg's scene score, takes each shot's middle frame for its
+palette and grade, and reads loudness with `ebur128`. Comparison applies the same measurement
+to a candidate and checks each trait against a tolerance, phrased as what to change.
+
 ## Clips pipeline
 
 One audio-only ffmpeg pass yields momentary loudness every 100 ms (EBU R128) and every silence.
