@@ -805,19 +805,23 @@ impl Ctx {
             "score" => {
                 // where a scoreboard (or any counter) changes for good: the goals of a quiet stream
                 let Some(ffmpeg) = motion::render::find_ffmpeg() else { return fail("ffmpeg not found") };
-                let Some(region) = s(a, "region").as_deref().and_then(clips::parse_region) else {
+                let Some(regions) = s(a, "region").as_deref().and_then(clips::parse_regions) else {
                     return fail(
-                        "give region=x,y,w,h as fractions of the frame around the score digits only (not the clock), e.g. region=0.47,0.0,0.06,0.05; look at a frame first",
+                        "give region=x,y,w,h as fractions of the frame around ONE team's score digit (not the clock), one region per team separated by ';', e.g. region=0.405,0.012,0.04,0.06;0.552,0.012,0.04,0.06; look at a frame first",
                     );
                 };
                 let audio = clips::analyse_audio(&ffmpeg, &file).ok();
                 let from = n(a, "from").unwrap_or(0.0).max(0.0);
                 let to = n(a, "to").or(audio.as_ref().map(|x| x.duration)).unwrap_or(from + 600.0);
-                let changes = clips::region_changes(&ffmpeg, &file, from, to, region)?;
+                let per: Vec<Vec<f64>> = regions.iter().map(|r| clips::region_changes(&ffmpeg, &file, from, to, *r)).collect::<Result<_>>()?;
+                let (kept, screen) = clips::score_changes(&per);
                 let preview = p.dir.join("looks").join(format!("{stem}-region.png"));
-                clips::region_preview(&ffmpeg, &file, changes.first().map(|c| c + 0.5).unwrap_or(from + 1.0), region, &preview)?;
-                Ok(json!({"file": path_str(&file), "region": s(a, "region"), "changes": changes, "contact": path_str(&preview),
-                    "how_to_use": "Each time is where the region changed and stayed changed: in a match, a goal (the score) or a new round. Check the red box on the preview sits on the score and not on the clock. Plan every highlight around these: start at the start of the play that led to it, and end after the outcome and the reaction or replay; never end a segment in the seconds before one of these times. Pass score_region to action=build and the cut is checked against them."}))
+                let at = n(a, "preview_at").or(kept.first().map(|c| c.1 + 4.0)).unwrap_or(from + 1.0);
+                clips::region_preview(&ffmpeg, &file, at, &regions, &preview)?;
+                Ok(json!({"file": path_str(&file), "region": s(a, "region"),
+                    "changes": kept.iter().map(|(r, t)| json!({"t": t, "region": r})).collect::<Vec<_>>(),
+                    "screen_wide": screen, "contact": path_str(&preview),
+                    "how_to_use": "Each change is where that region's digit changed shape and stayed changed: a goal for that team (region index = the order you gave them). screen_wide are times when every region changed together (a menu, a replay, the end of a match): not goals. Recall is not perfect (a goal hidden by a replay or a menu can be missed), so check the scoreboard around the plays you plan with action=look. Build every highlight around these: start at the play that led to it, end after the outcome and the reaction or replay, never in the seconds before one. Pass the same score_region to action=build and the cut is checked against them."}))
             }
             "look" => {
                 let Some(ffmpeg) = motion::render::find_ffmpeg() else { return fail("ffmpeg not found") };
@@ -903,11 +907,12 @@ impl Ctx {
                 let sound_events: Vec<clips::Event> =
                     motion::render::find_ffmpeg().and_then(|ff| clips::analyse_audio(&ff, &file).ok()).map(|au| clips::events(&au, 60)).unwrap_or_default();
                 // the outcomes (score changes) the cut must not stop short of
-                let score_changes: Vec<f64> = match (s(a, "score_region").as_deref().and_then(clips::parse_region), motion::render::find_ffmpeg()) {
-                    (Some(r), Some(ff)) => {
+                let score_changes: Vec<f64> = match (s(a, "score_region").as_deref().and_then(clips::parse_regions), motion::render::find_ffmpeg()) {
+                    (Some(rs), Some(ff)) => {
                         let lo = stories.iter().flat_map(|s| s.segments.iter().map(|x| x.start)).fold(f64::MAX, f64::min);
                         let hi = stories.iter().flat_map(|s| s.segments.iter().map(|x| x.end)).fold(0.0, f64::max);
-                        clips::region_changes(&ff, &file, (lo - 5.0).max(0.0), hi + 15.0, r).unwrap_or_default()
+                        let per: Vec<Vec<f64>> = rs.iter().map(|r| clips::region_changes(&ff, &file, (lo - 8.0).max(0.0), hi + 15.0, *r).unwrap_or_default()).collect();
+                        clips::score_changes(&per).0.into_iter().map(|(_, t)| t).collect()
                     }
                     _ => Vec::new(),
                 };
