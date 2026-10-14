@@ -162,7 +162,7 @@ fn piece_motion(i: usize, d: f64, entry: Option<&str>, exit: Option<&str>, hits:
         if k == "whip" {
             slide.push(format!("{dir}*pow(max(0,1-t/{MOVE_IN}),3)"));
         }
-        blur.push(format!("between(T,0,{MOVE_IN})"));
+        blur.push(format!("between(t,0,{MOVE_IN})"));
     }
     if let Some(k) = exit {
         let from = (d - MOVE_OUT).max(0.0);
@@ -170,7 +170,7 @@ fn piece_motion(i: usize, d: f64, entry: Option<&str>, exit: Option<&str>, hits:
         if k == "whip" {
             slide.push(format!("{}*pow(max(0,(t-{from:.3})/{MOVE_OUT}),3)", -dir));
         }
-        blur.push(format!("between(T,{from:.3},{d:.3})"));
+        blur.push(format!("between(t,{from:.3},{d:.3})"));
     }
     let mut flash = String::new();
     for hit in hits {
@@ -178,17 +178,18 @@ fn piece_motion(i: usize, d: f64, entry: Option<&str>, exit: Option<&str>, hits:
         zoom.push(format!("0.13*exp(-max(0,t-{hit:.3})*9)*gte(t,{hit:.3})"));
         sx.push(format!("{:.1}*sin((t-{hit:.3})*83)*exp(-max(0,t-{hit:.3})*11)*gte(t,{hit:.3})", 12.0 * s));
         sy.push(format!("{:.1}*cos((t-{hit:.3})*71)*exp(-max(0,t-{hit:.3})*11)*gte(t,{hit:.3})", 9.0 * s));
-        blur.push(format!("between(T,{hit:.3},{:.3})", hit + 0.12));
+        blur.push(format!("between(t,{hit:.3},{:.3})", hit + 0.12));
         flash.push_str(&format!(",drawbox=x=0:y=0:w=iw:h=ih:color=white@0.35:t=fill:enable='between(t,{hit:.3},{:.3})'", hit + 0.067));
     }
     let sum = |v: &[String]| if v.is_empty() { "0".to_string() } else { v.join("+") };
     let z = format!("(1+{})", sum(&zoom));
     format!(
-        "[f{i}]format=yuv420p,scale=w='2*trunc({w}*{z}/2)':h='2*trunc({h}*{z}/2)':eval=frame,crop={w}:{h}:x='(iw-ow)/2*(1+{})+{}':y='(ih-oh)/2+{}'{flash},setsar=1,split[o{i}][m{i}];[m{i}]tmix=frames=4[mb{i}];[o{i}][mb{i}]blend=all_expr='A*(1-min(1,{}))+B*min(1,{})'[v{i}];",
+        // the blended frames are laid over the picture only while it moves: a per-pixel
+        // blend expression did the same four times slower
+        "[f{i}]format=yuv420p,scale=w='2*trunc({w}*{z}/2)':h='2*trunc({h}*{z}/2)':eval=frame,crop={w}:{h}:x='(iw-ow)/2*(1+{})+{}':y='(ih-oh)/2+{}'{flash},setsar=1,split[o{i}][m{i}];[m{i}]tmix=frames=4[mb{i}];[o{i}][mb{i}]overlay=0:0:enable='{}'[v{i}];",
         sum(&slide),
         sum(&sx),
         sum(&sy),
-        sum(&blur),
         sum(&blur)
     )
 }
@@ -596,11 +597,15 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
                 .into_iter()
                 .min_by(|a, b| (a - t).abs().partial_cmp(&(b - t).abs()).unwrap_or(std::cmp::Ordering::Equal))
         };
-        if let Some(c) = near(h.start).filter(|c| (c - h.start).abs() > 0.03 && c + 0.3 < h.end) {
+        // where one segment simply continues the previous one (a label changing mid-take),
+        // there is no change of shot to find, and moving the edge only shifts the label
+        let joined_start = story.segments.iter().any(|s| (s.end - h.start).abs() < 0.05);
+        let joined_end = story.segments.iter().any(|s| (s.start - h.end).abs() < 0.05);
+        if let Some(c) = near(h.start).filter(|c| !joined_start && (c - h.start).abs() > 0.03 && c + 0.3 < h.end) {
             notes.push(format!("segment {} now starts on the change of shot at {:.2}s (was {:.2}s)", i + 1, c, h.start));
             h.start = c + 0.04;
         }
-        if let Some(c) = near(h.end).filter(|c| (c - h.end).abs() > 0.03 && *c - 0.3 > h.start) {
+        if let Some(c) = near(h.end).filter(|c| !joined_end && (c - h.end).abs() > 0.03 && *c - 0.3 > h.start) {
             notes.push(format!("segment {} now ends on the change of shot at {:.2}s (was {:.2}s)", i + 1, c, h.end));
             h.end = c - 0.04;
             end_snapped[i] = true;
@@ -707,6 +712,7 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
     // scene, however it was planned, and cuts inside a scene stay hard
     let new_scene = |i: usize| i > 0 && i < n && pieces[i - 1].origin != pieces[i].origin && (pieces[i].start - pieces[i - 1].end).abs() > 1.0;
     let mut cues: Vec<crate::motion::sound::Cue> = Vec::new();
+    let all_hits: Vec<f64> = story.segments.iter().flat_map(|s| s.hits.iter().copied()).collect();
     let mut at = 0.0;
     let mut g = String::new();
     for (i, p) in pieces.iter().enumerate() {
@@ -740,7 +746,8 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
         let kind = if modern { o.transition.as_str() } else { "cut" };
         let entry = (modern && new_scene(i) && d > 0.6).then_some(kind);
         let exit = (modern && new_scene(i + 1) && d > 0.6).then_some(kind);
-        let hits: Vec<f64> = p.hits.iter().filter(|t| **t > p.start + 0.05 && **t < p.end - 0.1).map(|t| t - p.start).collect();
+        // a hit belongs to whichever piece shows it, whichever segment listed it
+        let hits: Vec<f64> = all_hits.iter().filter(|t| **t >= p.start && **t < p.end - 0.1).map(|t| (t - p.start).max(0.02)).collect();
         // whips alternate direction, like a camera swinging back and forth
         let dir = if i % 2 == 0 { 1.0 } else { -1.0 };
         g.push_str(&piece_motion(i, d, entry, exit, &hits, dir, w, h));
@@ -1090,7 +1097,14 @@ mod tests {
         let g = piece_motion(2, 6.0, Some("zoom"), Some("whip"), &[3.0], -1.0, 1080, 1920);
         assert!(g.starts_with("[f2]") && g.ends_with("[v2];"));
         assert!(g.contains("eval=frame") && g.contains("crop=1080:1920") && g.contains("tmix=frames=4"));
-        assert!(g.contains("between(T,0,0.22)") && g.contains("between(T,5.800,6.000)") && g.contains("between(T,3.000,3.120)"), "{g}");
+        assert!(
+            g.contains("between(t,0,0.22)")
+                && g.contains("between(t,5.800,6.000)")
+                && g.contains("between(t,3.000,3.120)")
+                && g.contains("overlay=0:0:enable=")
+                && !g.contains("blend"),
+            "{g}"
+        );
         assert!(g.contains("drawbox") && g.contains("sin((t-3.000)*83)"), "a hit flashes and shakes");
     }
 
