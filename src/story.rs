@@ -35,6 +35,10 @@ pub struct Segment {
     /// Why it is in the cut (kept in the manifest; never rendered).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub why: String,
+    /// Moments of impact inside the segment, in source seconds (the goal, the hit, the
+    /// save): each gets a punch-in, a shake, motion blur and a hit sound.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hits: Vec<f64>,
     /// Which planned segment a piece came from (set while building).
     #[serde(skip)]
     pub origin: usize,
@@ -107,8 +111,11 @@ pub struct BuildOptions {
     pub breath: f64,
     /// Alternate a slight push-in across jump cuts.
     pub punch: bool,
-    /// Between scenes that are not continuous: "dip" (through black), "flash" (through white) or "cut".
+    /// Between scenes that are not continuous: "zoom" (zoom-through with motion blur),
+    /// "whip" (a fast pan with motion blur), "dip" (through black), "flash" (through white) or "cut".
     pub transition: String,
+    /// Synthesised whooshes on transitions and hits on impacts, under the clip's own sound.
+    pub sfx: bool,
     /// Move a segment's edges onto a change of shot when one lies within half a second.
     pub snap: bool,
     /// Site captions for the recording, used only if whisper is not installed.
@@ -136,6 +143,56 @@ pub struct Built {
     pub loudness_before: Option<f64>,
 }
 
+const MOVE_IN: f64 = 0.22;
+const MOVE_OUT: f64 = 0.2;
+
+/// Transitions and impacts for one piece, from `[f{i}]` to `[v{i}]`, all as functions
+/// of the piece's own time `t`: a zoom-through or a whip pan over its first 0.22 s and
+/// last 0.2 s, a punch-in with a decaying shake at each hit, motion blur (frame
+/// blending) only while something moves fast, and a two-frame flash on each hit.
+#[allow(clippy::too_many_arguments)]
+fn piece_motion(i: usize, d: f64, entry: Option<&str>, exit: Option<&str>, hits: &[f64], dir: f64, w: u32, h: u32) -> String {
+    if entry.is_none() && exit.is_none() && hits.is_empty() {
+        return format!("[f{i}]null[v{i}];");
+    }
+    let s = w as f64 / 1080.0;
+    let (mut zoom, mut slide, mut sx, mut sy, mut blur) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    if let Some(k) = entry {
+        zoom.push(format!("{}*pow(max(0,1-t/{MOVE_IN}),2)", if k == "whip" { 0.25 } else { 0.32 }));
+        if k == "whip" {
+            slide.push(format!("{dir}*pow(max(0,1-t/{MOVE_IN}),3)"));
+        }
+        blur.push(format!("between(T,0,{MOVE_IN})"));
+    }
+    if let Some(k) = exit {
+        let from = (d - MOVE_OUT).max(0.0);
+        zoom.push(format!("{}*pow(max(0,(t-{from:.3})/{MOVE_OUT}),2)", if k == "whip" { 0.25 } else { 0.45 }));
+        if k == "whip" {
+            slide.push(format!("{}*pow(max(0,(t-{from:.3})/{MOVE_OUT}),3)", -dir));
+        }
+        blur.push(format!("between(T,{from:.3},{d:.3})"));
+    }
+    let mut flash = String::new();
+    for hit in hits {
+        // the shake dies faster than the punch, so it never needs more room than the zoom gives
+        zoom.push(format!("0.13*exp(-max(0,t-{hit:.3})*9)*gte(t,{hit:.3})"));
+        sx.push(format!("{:.1}*sin((t-{hit:.3})*83)*exp(-max(0,t-{hit:.3})*11)*gte(t,{hit:.3})", 12.0 * s));
+        sy.push(format!("{:.1}*cos((t-{hit:.3})*71)*exp(-max(0,t-{hit:.3})*11)*gte(t,{hit:.3})", 9.0 * s));
+        blur.push(format!("between(T,{hit:.3},{:.3})", hit + 0.12));
+        flash.push_str(&format!(",drawbox=x=0:y=0:w=iw:h=ih:color=white@0.35:t=fill:enable='between(t,{hit:.3},{:.3})'", hit + 0.067));
+    }
+    let sum = |v: &[String]| if v.is_empty() { "0".to_string() } else { v.join("+") };
+    let z = format!("(1+{})", sum(&zoom));
+    format!(
+        "[f{i}]format=yuv420p,scale=w='2*trunc({w}*{z}/2)':h='2*trunc({h}*{z}/2)':eval=frame,crop={w}:{h}:x='(iw-ow)/2*(1+{})+{}':y='(ih-oh)/2+{}'{flash},setsar=1,split[o{i}][m{i}];[m{i}]tmix=frames=4[mb{i}];[o{i}][mb{i}]blend=all_expr='A*(1-min(1,{}))+B*min(1,{})'[v{i}];",
+        sum(&slide),
+        sum(&sx),
+        sum(&sy),
+        sum(&blur),
+        sum(&blur)
+    )
+}
+
 /// Whether this ffmpeg was built with a filter (e.g. `ass`, which needs libass).
 pub fn has_filter(ffmpeg: &Path, name: &str) -> bool {
     let Ok(out) = Command::new(ffmpeg).args(["-hide_banner", "-filters"]).stdin(Stdio::null()).output() else { return false };
@@ -145,35 +202,28 @@ pub fn has_filter(ffmpeg: &Path, name: &str) -> bool {
 /// Bring a finished clip to `LOUDNESS_LUFS`: measure it, add the gain it is missing and
 /// let a limiter hold the peaks under -1.5 dBFS. A single-pass loudnorm cannot lift a
 /// quiet stream that far, so the gain is computed from the measurement instead. The
-/// picture is copied, not encoded again. Returns (before, after).
-pub fn deliver_loudness(ffmpeg: &Path, file: &Path) -> Result<(Option<f64>, Option<f64>)> {
-    let Some(before) = crate::reference::loudness(ffmpeg, file).integrated_lufs.filter(|i| i.is_finite() && *i > -69.0) else {
-        return Ok((None, None));
-    };
-    let gain = LOUDNESS_LUFS - before;
-    if gain.abs() < 0.5 {
-        return Ok((Some(before), Some(before)));
+/// picture is copied, not encoded again. `sfx` (the edit's own sound) is mixed in after
+/// the gain, so its level is set against the delivered clip, not the raw stream.
+/// Returns (before, after).
+pub fn deliver_loudness(ffmpeg: &Path, file: &Path, sfx: Option<&Path>) -> Result<(Option<f64>, Option<f64>)> {
+    let before = crate::reference::loudness(ffmpeg, file).integrated_lufs.filter(|i| i.is_finite() && *i > -69.0);
+    // a silent clip keeps its level; the effects still go in
+    let gain = before.map(|b| LOUDNESS_LUFS - b).unwrap_or(0.0);
+    if gain.abs() < 0.5 && sfx.is_none() {
+        return Ok((before, before));
     }
     let tmp = file.with_extension("loud.mp4");
-    let r = Command::new(ffmpeg)
-        .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
-        .arg(file)
-        .args([
-            "-map",
-            "0:v",
-            "-map",
-            "0:a",
-            "-c:v",
-            "copy",
-            "-af",
-            &format!("volume={gain:.2}dB,alimiter=limit=0.84:level=0"),
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-movflags",
-            "+faststart",
-        ])
+    let mut cmd = Command::new(ffmpeg);
+    cmd.args(["-hide_banner", "-loglevel", "error", "-y", "-i"]).arg(file);
+    let graph = match sfx {
+        Some(s) => {
+            cmd.arg("-i").arg(s);
+            format!("[0:a]volume={gain:.2}dB[g];[g][1:a]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.84:level=0[a]")
+        }
+        None => format!("[0:a]volume={gain:.2}dB,alimiter=limit=0.84:level=0[a]"),
+    };
+    let r = cmd
+        .args(["-filter_complex", &graph, "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"])
         .arg(&tmp)
         .stdin(Stdio::null())
         .output()?;
@@ -183,7 +233,7 @@ pub fn deliver_loudness(ffmpeg: &Path, file: &Path) -> Result<(Option<f64>, Opti
     }
     std::fs::rename(&tmp, file)?;
     let after = crate::reference::loudness(ffmpeg, file).integrated_lufs;
-    Ok((Some(before), after))
+    Ok((before, after))
 }
 
 /* ------------------------------ planning helpers ------------------------------ */
@@ -652,35 +702,63 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
 
     // pass 2: the picture
     let (w, h) = (o.width - o.width % 2, o.height - o.height % 2);
+    let modern = o.transition == "zoom" || o.transition == "whip";
+    // a jump between scenes is a transition; footage that simply continues is not a new
+    // scene, however it was planned, and cuts inside a scene stay hard
+    let new_scene = |i: usize| i > 0 && i < n && pieces[i - 1].origin != pieces[i].origin && (pieces[i].start - pieces[i - 1].end).abs() > 1.0;
+    let mut cues: Vec<crate::motion::sound::Cue> = Vec::new();
+    let mut at = 0.0;
     let mut g = String::new();
     for (i, p) in pieces.iter().enumerate() {
         let z = p.zoom.unwrap_or(1.0).clamp(1.0, 1.6);
         let aside = if p.context { ",hue=s=0.15,eq=contrast=1.12:brightness=-0.04" } else { "" };
-        // a jump between scenes gets a short dip; cuts inside a scene stay hard
         let colour = if o.transition == "flash" { "white" } else { "black" };
         let d = p.end - p.start;
         let mut dip = String::new();
-        if o.transition != "cut" && d > 0.5 {
-            // (footage that simply continues is not a new scene, however it was planned)
-            if i > 0 && pieces[i - 1].origin != p.origin && (p.start - pieces[i - 1].end).abs() > 1.0 {
+        if !modern && o.transition != "cut" && d > 0.5 {
+            if new_scene(i) {
                 dip.push_str(&format!(",fade=t=in:st=0:d=0.12:color={colour}"));
             }
-            if i + 1 < n && pieces[i + 1].origin != p.origin && (pieces[i + 1].start - p.end).abs() > 1.0 {
+            if new_scene(i + 1) {
                 dip.push_str(&format!(",fade=t=out:st={:.3}:d=0.12:color={colour}", d - 0.12));
             }
         }
         if o.layout == "fit" {
             g.push_str(&format!(
-                "[{i}:v]fps=30,setpts=PTS-STARTPTS,split[x{i}][y{i}];[x{i}]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=24:4,eq=brightness=-0.14[bg{i}];[y{i}]scale={fw}:-2{aside}[fg{i}];[bg{i}][fg{i}]overlay=(W-w)/2:(H-h)/2,setsar=1{dip}[v{i}];",
+                "[{i}:v]fps=30,setpts=PTS-STARTPTS,split[x{i}][y{i}];[x{i}]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=24:4,eq=brightness=-0.14[bg{i}];[y{i}]scale={fw}:-2{aside}[fg{i}];[bg{i}][fg{i}]overlay=(W-w)/2:(H-h)/2,setsar=1{dip}[f{i}];",
                 fw = even(w as f64 * z)
             ));
         } else {
             g.push_str(&format!(
-                "[{i}:v]fps=30,setpts=PTS-STARTPTS,scale={sw}:{sh}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1{aside}{dip}[v{i}];",
+                "[{i}:v]fps=30,setpts=PTS-STARTPTS,scale={sw}:{sh}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1{aside}{dip}[f{i}];",
                 sw = even(w as f64 * z),
                 sh = even(h as f64 * z)
             ));
         }
+        // transitions live inside the pieces (no time is added or lost), so captions,
+        // labels and the cut list keep their timing
+        let kind = if modern { o.transition.as_str() } else { "cut" };
+        let entry = (modern && new_scene(i) && d > 0.6).then_some(kind);
+        let exit = (modern && new_scene(i + 1) && d > 0.6).then_some(kind);
+        let hits: Vec<f64> = p.hits.iter().filter(|t| **t > p.start + 0.05 && **t < p.end - 0.1).map(|t| t - p.start).collect();
+        // whips alternate direction, like a camera swinging back and forth
+        let dir = if i % 2 == 0 { 1.0 } else { -1.0 };
+        g.push_str(&piece_motion(i, d, entry, exit, &hits, dir, w, h));
+        if entry.is_some() {
+            cues.push(crate::motion::sound::Cue {
+                at: (at - 0.16f64).max(0.0),
+                kind: "whoosh".into(),
+                gain: 0.32,
+                pitch: 1.0,
+                dur: Some(0.36),
+                seed: i as u32 + 1,
+                ..Default::default()
+            });
+        }
+        for t in &hits {
+            cues.push(crate::motion::sound::Cue { at: at + t, kind: "hit".into(), gain: 0.42, pitch: 1.0, seed: i as u32 + 40, ..Default::default() });
+        }
+        at += d;
     }
     g.push_str(&audio_graph(punchline));
     g.push(';');
@@ -720,8 +798,19 @@ pub fn build(home: &Home, story: &Story, o: &BuildOptions) -> Result<Built> {
     if !r.status.success() {
         return fail(format!("ffmpeg could not render the story: {}", crate::util::truncate_chars(String::from_utf8_lossy(&r.stderr).trim(), 500)));
     }
+    // the sound of the edit, mixed against the clip once it is at its delivery loudness
+    let sfx_wav = if o.sfx && !cues.is_empty() {
+        let p = work.join("sfx.wav");
+        crate::motion::sound::write_wav(&p, &crate::motion::sound::mix(&cues, total + if punchline { 0.45 } else { 0.0 }))?;
+        Some(p)
+    } else {
+        None
+    };
     // platforms play everything near -14 LUFS: a quiet stream must not arrive as a whisper
-    let (loudness_before, loudness) = deliver_loudness(&ffmpeg, &abs_out)?;
+    let (loudness_before, loudness) = deliver_loudness(&ffmpeg, &abs_out, sfx_wav.as_deref())?;
+    if sfx_wav.is_some() {
+        notes.push(format!("{} sound cue(s): a whoosh on each transition, a hit on each impact", cues.len()));
+    }
     Ok(Built {
         loudness,
         loudness_before,
@@ -800,6 +889,32 @@ pub fn review_sheet(source: &Path, cut: &[(f64, f64)], out: &Path) -> Result<()>
         return fail(format!("could not make the review sheet: {}", crate::util::truncate_chars(String::from_utf8_lossy(&r.stderr).trim(), 200)));
     }
     Ok(())
+}
+
+/// What the scoreboard says about the cut. Stopping a segment in the seconds before the
+/// score changes is the worst cut there is in a quiet match: the viewer watches the
+/// player drive at the ball and never sees what happened. Ending right on the change
+/// leaves out the celebration and the replay.
+pub fn payoff_checks(cut: &[(f64, f64)], changes: &[f64]) -> Vec<String> {
+    let mut out = Vec::new();
+    for c in changes {
+        if let Some((i, (_, e))) = cut.iter().enumerate().find(|(_, (s, e))| *s <= *c && *c <= *e) {
+            if e - c < 2.0 {
+                out.push(format!("segment {} ends {:.1}s after the score changed at {c:.1}s: keep the reaction or the replay (end 3 to 8 s later)", i + 1, e - c));
+            }
+            continue;
+        }
+        if let Some((i, (_, e))) =
+            cut.iter().enumerate().filter(|(_, (_, e))| *e < *c && c - e < 10.0).min_by(|a, b| (c - a.1 .1).partial_cmp(&(c - b.1 .1)).unwrap_or(std::cmp::Ordering::Equal))
+        {
+            out.push(format!(
+                "segment {} stops {:.1}s before the score changed at {c:.1}s: the goal is cut out. Extend it past {c:.1}s, or drop the build-up if the goal is not part of this story",
+                i + 1,
+                c - e
+            ));
+        }
+    }
+    out
 }
 
 /// What the sound says about each edge of the cut: a peak just outside a segment
@@ -952,6 +1067,31 @@ mod tests {
         // monochrome brand: the others are dimmed instead
         let mono = ass(&words, &[], &Style { accent: Rgb(250, 250, 250), fg: Rgb(250, 250, 250), ..Default::default() }, 1080, 1920, "fit");
         assert!(mono.contains("Style: Cap,Arial,100,&H00969696"), "{}", mono.lines().find(|l| l.starts_with("Style: Cap")).unwrap_or(""));
+    }
+
+    #[test]
+    fn stopping_before_the_goal_is_flagged() {
+        // the player drives at the ball, the cut ends, and the score changes 3 s later
+        let c = payoff_checks(&[(100.0, 112.0), (140.0, 150.0)], &[115.0]);
+        assert_eq!(c.len(), 1);
+        assert!(c[0].contains("segment 1 stops 3.0s before") && c[0].contains("goal is cut out"), "{c:?}");
+        // the goal is inside but the segment ends on it: no celebration, no replay
+        assert!(payoff_checks(&[(100.0, 116.0)], &[115.0])[0].contains("keep the reaction"));
+        // goal, then 6 s of aftermath: fine
+        assert!(payoff_checks(&[(100.0, 121.0)], &[115.0]).is_empty());
+        // a change far from any segment is somebody else's story
+        assert!(payoff_checks(&[(100.0, 110.0)], &[300.0]).is_empty());
+    }
+
+    #[test]
+    fn modern_transitions_are_inside_the_pieces() {
+        let plain = piece_motion(0, 5.0, None, None, &[], 1.0, 1080, 1920);
+        assert_eq!(plain, "[f0]null[v0];");
+        let g = piece_motion(2, 6.0, Some("zoom"), Some("whip"), &[3.0], -1.0, 1080, 1920);
+        assert!(g.starts_with("[f2]") && g.ends_with("[v2];"));
+        assert!(g.contains("eval=frame") && g.contains("crop=1080:1920") && g.contains("tmix=frames=4"));
+        assert!(g.contains("between(T,0,0.22)") && g.contains("between(T,5.800,6.000)") && g.contains("between(T,3.000,3.120)"), "{g}");
+        assert!(g.contains("drawbox") && g.contains("sin((t-3.000)*83)"), "a hit flashes and shakes");
     }
 
     #[test]

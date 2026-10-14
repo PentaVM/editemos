@@ -474,6 +474,89 @@ pub fn storyboard(ffmpeg: &Path, src: &Path, from: f64, to: f64, cols: u32, rows
     Ok((0..n).map(|i| ((from + dur * (i as f64 + 0.5) / n as f64) * 10.0).round() / 10.0).collect())
 }
 
+/// A part of the frame as fractions of its size: x, y, width, height.
+pub type Region = (f64, f64, f64, f64);
+
+pub fn parse_region(s: &str) -> Option<Region> {
+    let v: Vec<f64> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+    (v.len() == 4 && v.iter().all(|x| (0.0..=1.0).contains(x)) && v[2] > 0.0 && v[3] > 0.0 && v[0] + v[2] <= 1.0001 && v[1] + v[3] <= 1.0001).then(|| (v[0], v[1], v[2], v[3]))
+}
+
+/// Mean absolute difference between two small grey frames.
+fn frame_diff(a: &[u8], b: &[u8]) -> f64 {
+    a.iter().zip(b).map(|(x, y)| (*x as i32 - *y as i32).unsigned_abs() as f64).sum::<f64>() / a.len().max(1) as f64
+}
+
+/// Where a region that normally holds still changes and then holds still again: a
+/// scoreboard taking a new score, a kill counter, a round number. `frames` are small
+/// grey crops sampled `fps` times a second starting at `from`. A change has to stay
+/// changed (the next samples agree with it) so a flash or a replay wipe is not a goal.
+pub fn stable_changes(frames: &[Vec<u8>], fps: f64, from: f64) -> Vec<f64> {
+    if frames.len() < 4 {
+        return Vec::new();
+    }
+    let diffs: Vec<f64> = frames.windows(2).map(|w| frame_diff(&w[0], &w[1])).collect();
+    let mut sorted = diffs.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let noise = sorted[sorted.len() / 2];
+    let threshold = (noise * 4.0).max(8.0);
+    let mut out: Vec<f64> = Vec::new();
+    for (k, d) in diffs.iter().enumerate() {
+        // frame k+1 differs from frame k ...
+        if *d < threshold {
+            continue;
+        }
+        // ... and the next two samples look like k+1, not like k
+        let held = (k + 3 < frames.len()) && frame_diff(&frames[k + 1], &frames[k + 2]) < threshold / 2.0 && frame_diff(&frames[k + 1], &frames[k + 3]) < threshold / 2.0;
+        // ... and is not just the picture coming back from a flash to what it was
+        let new_state = k == 0 || frame_diff(&frames[k + 1], &frames[k - 1]) >= threshold;
+        if !held || !new_state {
+            continue;
+        }
+        let t = ((from + (k + 1) as f64 / fps) * 10.0).round() / 10.0;
+        if out.last().map(|l| t - l > 3.0).unwrap_or(true) {
+            out.push(t);
+        }
+    }
+    out
+}
+
+/// Sample a region of the picture between two times and find where it changes for good.
+pub fn region_changes(ffmpeg: &Path, src: &Path, from: f64, to: f64, r: Region) -> Result<Vec<f64>> {
+    let fps = 2.0;
+    let (gw, gh) = (48usize, 24usize);
+    let out = Command::new(ffmpeg)
+        .args(["-hide_banner", "-loglevel", "error", "-ss", &format!("{from:.2}"), "-t", &format!("{:.2}", (to - from).max(1.0)), "-an", "-i"])
+        .arg(src)
+        .args(["-vf", &format!("fps={fps},crop=iw*{:.4}:ih*{:.4}:iw*{:.4}:ih*{:.4},scale={gw}:{gh}:flags=area,format=gray", r.2, r.3, r.0, r.1), "-f", "rawvideo", "-"])
+        .stdin(Stdio::null())
+        .output()?;
+    if !out.status.success() {
+        return fail(format!("could not read the region: {}", crate::util::truncate_chars(String::from_utf8_lossy(&out.stderr).trim(), 200)));
+    }
+    let frames: Vec<Vec<u8>> = out.stdout.chunks_exact(gw * gh).map(|c| c.to_vec()).collect();
+    Ok(stable_changes(&frames, fps, from))
+}
+
+/// One frame with the region drawn on it, so whoever chose the region can check it.
+pub fn region_preview(ffmpeg: &Path, src: &Path, at: f64, r: Region, out: &Path) -> Result<()> {
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let ok = Command::new(ffmpeg)
+        .args(["-hide_banner", "-loglevel", "error", "-y", "-ss", &format!("{at:.2}"), "-i"])
+        .arg(src)
+        .args(["-frames:v", "1", "-vf", &format!("drawbox=x=iw*{:.4}:y=ih*{:.4}:w=iw*{:.4}:h=ih*{:.4}:color=red@0.9:t=4,scale=960:-2", r.0, r.1, r.2, r.3)])
+        .arg(out)
+        .stdin(Stdio::null())
+        .status()?
+        .success();
+    if !ok {
+        return fail("could not draw the region preview");
+    }
+    Ok(())
+}
+
 const HYPE: &[&str] = &[
     "wow",
     "omg",
@@ -781,6 +864,22 @@ mod tests {
         assert_eq!(parse_transcript(vtt)[0].end, 4.0);
         let cut = slice_srt(&c, 59.0, 70.0);
         assert!(cut.contains("00:00:01,000 --> 00:00:03,000") && cut.contains("No puede ser"));
+    }
+
+    #[test]
+    fn a_score_change_is_found_and_a_flash_is_not() {
+        let still = |v: u8| vec![v; 48 * 24];
+        let mut frames: Vec<Vec<u8>> = Vec::new();
+        // 20 samples of "0", a one-sample flash, 10 more of "0", then "1" for good
+        frames.extend((0..20).map(|_| still(40)));
+        frames.push(still(250));
+        frames.extend((0..10).map(|_| still(40)));
+        frames.extend((0..12).map(|_| still(90)));
+        let ch = stable_changes(&frames, 2.0, 100.0);
+        assert_eq!(ch, vec![115.5], "only the change that holds: {ch:?}");
+        assert!(stable_changes(&(0..30).map(|_| still(40)).collect::<Vec<_>>(), 2.0, 0.0).is_empty());
+        assert_eq!(parse_region("0.45,0,0.1,0.05"), Some((0.45, 0.0, 0.1, 0.05)));
+        assert_eq!(parse_region("0.95,0,0.1,0.05"), None, "outside the frame");
     }
 
     #[test]

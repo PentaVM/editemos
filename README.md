@@ -375,7 +375,11 @@ the outcome, the segment is cutting the story, and whoever planned it moves the 
 again. Alongside it come **checks** from the sound (a peak right after a cut, a build-up entered
 halfway). The builder also does two things on its own: edges within half a second of a change
 of shot are moved onto it, so no stray frames of the previous shot flash by, and a jump between
-scenes gets a short dip (`--transition dip|flash|cut`) while continuous footage is left alone.
+plays gets a zoom-through with motion blur and a whoosh (`--transition zoom|whip|dip|flash|cut`)
+while continuous footage is left alone. Segments can mark their impacts (`"hits": [312.4]`):
+each gets a punch-in, a decaying shake, a two-frame flash and an impact sound. In a game,
+`clips score --region x,y,w,h` finds every time the scoreboard changes, and a build given
+`--score-region` flags any segment that stops in the seconds before a goal.
 Every clip is delivered at -14 LUFS with peaks under -1.5 dBFS (measured, then the missing gain
 and a limiter), so a quiet stream does not arrive as a whisper next to everything else on the
 platform; the build reports the loudness before and after.

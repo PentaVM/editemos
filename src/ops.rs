@@ -802,6 +802,23 @@ impl Ctx {
                 Ok(json!({"file": path_str(&file), "duration": audio.duration, "events": ev,
                     "how_to_use": "Each event is a moment the sound says something happened (crowd, casters, a reaction). rise is where the build-up began, settle where it calmed, cuts_after where the picture cut (a replay usually starts at the first). Sound does not say WHAT happened: call action=look around an event to see it, then plan the clip so it includes the build-up (start some seconds before rise), the moment, and the reaction or replay."}))
             }
+            "score" => {
+                // where a scoreboard (or any counter) changes for good: the goals of a quiet stream
+                let Some(ffmpeg) = motion::render::find_ffmpeg() else { return fail("ffmpeg not found") };
+                let Some(region) = s(a, "region").as_deref().and_then(clips::parse_region) else {
+                    return fail(
+                        "give region=x,y,w,h as fractions of the frame around the score digits only (not the clock), e.g. region=0.47,0.0,0.06,0.05; look at a frame first",
+                    );
+                };
+                let audio = clips::analyse_audio(&ffmpeg, &file).ok();
+                let from = n(a, "from").unwrap_or(0.0).max(0.0);
+                let to = n(a, "to").or(audio.as_ref().map(|x| x.duration)).unwrap_or(from + 600.0);
+                let changes = clips::region_changes(&ffmpeg, &file, from, to, region)?;
+                let preview = p.dir.join("looks").join(format!("{stem}-region.png"));
+                clips::region_preview(&ffmpeg, &file, changes.first().map(|c| c + 0.5).unwrap_or(from + 1.0), region, &preview)?;
+                Ok(json!({"file": path_str(&file), "region": s(a, "region"), "changes": changes, "contact": path_str(&preview),
+                    "how_to_use": "Each time is where the region changed and stayed changed: in a match, a goal (the score) or a new round. Check the red box on the preview sits on the score and not on the clock. Plan every highlight around these: start at the start of the play that led to it, and end after the outcome and the reaction or replay; never end a segment in the seconds before one of these times. Pass score_region to action=build and the cut is checked against them."}))
+            }
             "look" => {
                 let Some(ffmpeg) = motion::render::find_ffmpeg() else { return fail("ffmpeg not found") };
                 let from = n(a, "from").unwrap_or(0.0).max(0.0);
@@ -885,6 +902,15 @@ impl Ctx {
                 let out_dir = s(a, "out").map(PathBuf::from).unwrap_or_else(|| p.dir.join("clips"));
                 let sound_events: Vec<clips::Event> =
                     motion::render::find_ffmpeg().and_then(|ff| clips::analyse_audio(&ff, &file).ok()).map(|au| clips::events(&au, 60)).unwrap_or_default();
+                // the outcomes (score changes) the cut must not stop short of
+                let score_changes: Vec<f64> = match (s(a, "score_region").as_deref().and_then(clips::parse_region), motion::render::find_ffmpeg()) {
+                    (Some(r), Some(ff)) => {
+                        let lo = stories.iter().flat_map(|s| s.segments.iter().map(|x| x.start)).fold(f64::MAX, f64::min);
+                        let hi = stories.iter().flat_map(|s| s.segments.iter().map(|x| x.end)).fold(0.0, f64::max);
+                        clips::region_changes(&ff, &file, (lo - 5.0).max(0.0), hi + 15.0, r).unwrap_or_default()
+                    }
+                    _ => Vec::new(),
+                };
                 let mut built: Vec<Value> = Vec::new();
                 for (i, st) in stories.iter_mut().enumerate() {
                     notes.extend(story::resolve_context(st, &cues));
@@ -901,7 +927,8 @@ impl Ctx {
                         max_pause: n(a, "max_pause").unwrap_or(0.55),
                         breath: n(a, "breath").or(fonts::load_prefs(&self.home).cut_breath).unwrap_or(0.4).clamp(0.0, 1.5),
                         punch: !b(a, "no_punch"),
-                        transition: s(a, "transition").unwrap_or_else(|| "dip".into()),
+                        transition: s(a, "transition").unwrap_or_else(|| "zoom".into()),
+                        sfx: !b(a, "no_sfx"),
                         snap: !b(a, "no_snap"),
                         rough: cues.clone(),
                     };
@@ -909,7 +936,8 @@ impl Ctx {
                     // show the planner what fell just outside each segment, and what the sound says about the edges
                     let review = out_dir.join(format!("{name}.review.png"));
                     let reviewed = story::review_sheet(&file, &r.cut, &review).is_ok();
-                    let checks = story::edge_checks(&r.cut, &sound_events);
+                    let mut checks = story::edge_checks(&r.cut, &sound_events);
+                    checks.extend(story::payoff_checks(&r.cut, &score_changes));
                     let _ = assets::register_file(&p, Path::new(&r.out), "clip", vec!["story".into(), name.clone()]);
                     write_atomic(&out_dir.join(format!("{name}.story.json")), serde_json::to_string_pretty(&st)?.as_bytes())?;
                     let mut v = serde_json::to_value(&r)?;

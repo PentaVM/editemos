@@ -37,6 +37,21 @@ picture: scoreboard, clock, replays, kill feed, faces. Sound peaks (crowd, caste
 when; frames tell you what. A highlight is build-up, moment and aftermath (replay or
 reaction): start before the possession or the attempt began.
 
+## Gameplay highlights
+
+What the genre expects (Rocket League and any game with a score):
+
+- **Outcome or nothing.** Every clip contains a payoff: a goal, a save, a demolition, an
+  aerial, a near miss. Find goals by the scoreboard (`clips score`), not by guessing.
+- **Never stop before the ball arrives.** Cutting away while the player drives at the ball
+  is edging the viewer. If the outcome is not in the segment, the segment is not finished.
+- **Play, impact, reaction.** Start at the start of the possession (kickoff, the clear, the
+  pass), give the impact weight (punch-in, shake, a frame of flash, an impact sound), and
+  keep the goal explosion, the celebration or the replay.
+- **Transitions that move.** Zoom-throughs and whips with motion blur between plays, hard
+  cuts inside a play. A dip to black between plays reads as a slideshow.
+- **Drop the dead air.** Rotations, boost collecting and driving around are not story.
+
 ## Length
 
 Aim for what the user asked for. A 60 s story needs several segments; one 60 s chunk of
