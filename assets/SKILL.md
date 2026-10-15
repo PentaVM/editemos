@@ -61,6 +61,15 @@ You have the `editemos_*` MCP tools. If they are not connected, the same operati
   a sheet with a frame per shot. Read the sheet for what numbers miss (type, graphics, camera).
   `action=apply` adopts its tempo; after building, `action=compare reference=<n> file=<our cut>`
   says trait by trait what still differs. Never say a cut matches a reference without comparing.
+- **Edit kinds:** a project can make one kind of edit (`editemos_kinds action=use kind=...`:
+  gameplay-highlights, talking-story, calm-documentary, or one somebody shared). Its rules are
+  in the context and its defaults fill `clips build`. Follow them. When the user describes a
+  type of edit no kind covers, offer to write one with them (`action=new`).
+- **Every verdict is training data.** When the user judges a clip ("está bien", "cortaste antes
+  del gol", "este no sirve"), record it right away: `editemos_dataset action=add clip=<built clip>
+  verdict=approved|corrected|rejected notes="their words"`, and for a correction pass the plan
+  they wanted as `correction`. Examples never contain footage; if the source has no link,
+  record it with `action=source`.
 - **Craft guides** ship with editemos: `cutting`, `story-shorts`, `sound-design`, `color-grade`,
   `camera-language`, `generative-video`, `motion-remotion`, `reverse-engineer-a-reference`
   (`editemos_skills action=read name=<guide>`). Read the one that fits before a task of that kind.

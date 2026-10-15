@@ -117,3 +117,19 @@ pub fn site_routes() -> Vec<Route> {
         ("/hero.png", "image/png", hero_png()),
     ]
 }
+
+/// A video of solid-colour shots of known lengths over a tone (needs ffmpeg).
+pub fn make_video(ffmpeg: &Path, out: &Path, shots: &[(&str, f64)], gain: f64) {
+    let mut cmd = std::process::Command::new(ffmpeg);
+    cmd.args(["-hide_banner", "-loglevel", "error", "-y"]);
+    for (c, d) in shots {
+        cmd.args(["-f", "lavfi", "-i", &format!("color=c={c}:s=320x180:d={d}:r=25")]);
+    }
+    let total: f64 = shots.iter().map(|s| s.1).sum();
+    cmd.args(["-f", "lavfi", "-i", &format!("sine=f=440:d={total}")]);
+    let inputs: String = (0..shots.len()).map(|i| format!("[{i}:v]")).collect();
+    cmd.args(["-filter_complex", &format!("{inputs}concat=n={}:v=1:a=0[v];[{}:a]volume={gain}[a]", shots.len(), shots.len()), "-map", "[v]", "-map", "[a]"]);
+    cmd.args(["-c:v", "mpeg4", "-q:v", "3", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"]).arg(out);
+    let st = cmd.stdin(std::process::Stdio::null()).status().unwrap();
+    assert!(st.success(), "could not make the test video");
+}

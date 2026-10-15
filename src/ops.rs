@@ -582,6 +582,164 @@ impl Ctx {
         }
     }
 
+    /* ---------------- edit kinds and their dataset ---------------- */
+
+    /// Edit kinds: list, show, use (for a project), new, validate, sync, adapter.
+    pub fn kinds_op(&self, a: &Value) -> Result<Value> {
+        let action = s(a, "action").unwrap_or_else(|| "list".into());
+        let kind_arg = || s(a, "kind").or_else(|| s(a, "id")).or_else(|| s(a, "name"));
+        match action.as_str() {
+            "list" => {
+                let active = self.project(a).ok().and_then(|p| p.config.kind);
+                let rows: Vec<Value> = crate::kinds::list(&self.home)
+                    .into_iter()
+                    .map(|k| json!({"id": k.kind.id, "name": k.kind.name, "description": k.kind.description, "tags": k.kind.tags, "examples": k.examples, "adapter": k.kind.adapter.as_ref().map(|x| x.base.clone()), "built_in": k.builtin, "in_use": active.as_deref() == Some(k.kind.id.as_str()), "folder": path_str(&k.folder)}))
+                    .collect();
+                Ok(json!({"kinds": rows}))
+            }
+            "show" => {
+                let Some(id) = kind_arg() else { return fail("show needs kind=<id>") };
+                let k = crate::kinds::find(&self.home, &id)?;
+                let examples = crate::dataset::load(&k.folder);
+                Ok(json!({"kind": k.kind, "folder": path_str(&k.folder), "dataset": crate::dataset::stats(&examples), "context": crate::kinds::context(&self.home, &id, 1)}))
+            }
+            "use" => {
+                let Some(id) = kind_arg() else { return fail("use needs kind=<id> (kinds list shows them)") };
+                let k = crate::kinds::find(&self.home, &id)?;
+                let mut p = self.project(a)?;
+                p.config.kind = Some(k.kind.id.clone());
+                p.save_config()?;
+                memory::add(&p, &format!("This project makes '{}' edits: {}", k.kind.name, k.kind.description), "decision", vec!["kind".into()], "high", "user", true, None)?;
+                self.refresh(&p);
+                Ok(json!({"project": p.config.slug, "kind": k.kind.id, "defaults": k.kind.defaults}))
+            }
+            "new" => {
+                let Some(name) = s(a, "name") else { return fail("new needs name=\"what this kind of edit is called\"") };
+                let from = match s(a, "from") {
+                    Some(f) => Some(crate::kinds::find(&self.home, &f)?.kind),
+                    None => None,
+                };
+                let folder = crate::kinds::scaffold(&self.home, &name, from.as_ref())?;
+                Ok(
+                    json!({"folder": path_str(&folder), "next": "Write what this edit is and the rules an editor of it follows in kind.toml, use it in a project (kinds use), and record edits with dataset add. To share it: kinds validate, then open a pull request adding the folder under kinds/ in the editemos repository (text only, never footage)."}),
+                )
+            }
+            "validate" => {
+                let folder = match (s(a, "folder"), kind_arg()) {
+                    (Some(f), _) => PathBuf::from(f),
+                    (None, Some(id)) => crate::kinds::find(&self.home, &id)?.folder,
+                    _ => return fail("validate needs kind=<id> or folder=<path>"),
+                };
+                let problems = crate::kinds::validate(&folder);
+                Ok(json!({"folder": path_str(&folder), "ok": problems.is_empty(), "problems": problems}))
+            }
+            "sync" => Ok(json!({"fetched": crate::kinds::sync(&self.home)?, "registry": crate::kinds::REGISTRY})),
+            "adapter" => {
+                let Some(id) = kind_arg() else { return fail("adapter needs kind=<id>") };
+                let (file, how) = crate::kinds::fetch_adapter(&self.home, &id)?;
+                Ok(json!({"file": path_str(&file), "how_to_load": how}))
+            }
+            other => fail(format!("unknown kinds action '{other}' (list, show, use, new, validate, sync, adapter)")),
+        }
+    }
+
+    /// The examples a kind learns from: add (a built clip and its verdict), list,
+    /// stats, export (a training set), source (where a local recording came from).
+    pub fn dataset_op(&self, a: &Value) -> Result<Value> {
+        let action = s(a, "action").unwrap_or_else(|| "stats".into());
+        let kind_of = |a: &Value| -> Result<crate::kinds::Loaded> {
+            let id = match s(a, "kind") {
+                Some(k) => k,
+                None => self.project(a)?.config.kind.ok_or_else(|| crate::error::Error("give kind=<id>, or set one for the project with kinds use".into()))?,
+            };
+            crate::kinds::find(&self.home, &id)
+        };
+        match action.as_str() {
+            "source" => {
+                let Some(f) = s(a, "file") else { return fail("source needs file=<local recording>") };
+                let src = crate::dataset::write_source(Path::new(&f), s(a, "url").as_deref(), s(a, "section").as_deref())?;
+                Ok(json!({"file": f, "source": src}))
+            }
+            "add" => {
+                let k = kind_of(a)?;
+                let Some(clip) = s(a, "clip") else { return fail("add needs clip=<the built clip (.mp4) or its name>") };
+                let base = PathBuf::from(&clip).with_extension("");
+                let read_json = |ext: &str| -> Result<String> {
+                    let p = base.with_extension(ext);
+                    std::fs::read_to_string(&p).map_err(|_| crate::error::Error(format!("{} not found: build the clip with this version of editemos first", p.display())))
+                };
+                let story: story::Story = serde_json::from_str(&read_json("story.json")?)?;
+                let record: crate::dataset::BuildRecord = serde_json::from_str(&read_json("build.json")?)?;
+                let correction = match a.get("correction") {
+                    Some(Value::Object(_)) => {
+                        Some(story::parse_plan(&a["correction"].to_string())?.into_iter().next().ok_or_else(|| crate::error::Error("the correction has no clip".into()))?)
+                    }
+                    Some(Value::String(t)) => {
+                        let text = if Path::new(t).exists() { std::fs::read_to_string(t)? } else { t.clone() };
+                        Some(story::parse_plan(&text)?.into_iter().next().ok_or_else(|| crate::error::Error("the correction has no clip".into()))?)
+                    }
+                    _ => None,
+                };
+                let verdict = s(a, "verdict").unwrap_or_else(|| "pending".into());
+                let e = crate::dataset::example_from_build(&k.kind.id, story, &record, &verdict, correction, &s(a, "notes").unwrap_or_default())?;
+                crate::dataset::append(&k.folder, &e)?;
+                if let Ok(p) = self.project(a) {
+                    if !e.notes.is_empty() {
+                        let kind = if verdict == "rejected" { "rejection" } else { "decision" };
+                        memory::add(&p, &format!("Clip {} ({}): {}", clip, verdict, e.notes), kind, vec!["clip".into(), k.kind.id.clone()], "high", "user", false, None)?;
+                    }
+                }
+                let warn = if e.source.url.is_none() {
+                    Some("the source has no link: others cannot rebuild its frames. dataset source file=<recording> url=<page> section=<part> records it")
+                } else {
+                    None
+                };
+                Ok(
+                    json!({"kind": k.kind.id, "example": e.id, "verdict": e.verdict, "window": e.window, "events": e.events.len(), "warning": warn, "file": path_str(&k.folder.join("examples.jsonl"))}),
+                )
+            }
+            "list" => {
+                let k = kind_of(a)?;
+                let rows: Vec<Value> = crate::dataset::load(&k.folder)
+                    .iter()
+                    .map(|e| json!({"id": e.id, "verdict": e.verdict, "title": e.plan.title, "segments": e.plan.segments.len(), "source": e.source.url, "window": e.window, "notes": e.notes}))
+                    .collect();
+                Ok(json!({"kind": k.kind.id, "examples": rows}))
+            }
+            "stats" => {
+                let k = kind_of(a)?;
+                Ok(json!({"kind": k.kind.id, "stats": crate::dataset::stats(&crate::dataset::load(&k.folder))}))
+            }
+            "export" => {
+                let k = kind_of(a)?;
+                let out = s(a, "out").map(PathBuf::from).unwrap_or_else(|| self.home.root.join("training").join(&k.kind.id));
+                // the recordings on this machine, recognised by the hash of their first megabytes
+                let mut sources: Vec<(String, PathBuf)> = Vec::new();
+                for pr in self.home.list() {
+                    for e in std::fs::read_dir(pr.dir.join("sources")).into_iter().flatten().flatten() {
+                        let path = e.path();
+                        if path.extension().map(|x| x == "mp4" || x == "mkv" || x == "webm").unwrap_or(false) {
+                            sources.push((crate::dataset::read_source(&path).sha256_head, path));
+                        }
+                    }
+                }
+                let examples = crate::dataset::load(&k.folder);
+                let r = crate::dataset::export(
+                    &examples,
+                    &k.kind.rules,
+                    &out,
+                    n(a, "fps").unwrap_or(0.5),
+                    n(a, "max_frames").map(|v| v as usize).unwrap_or(48),
+                    if b(a, "no_frames") { &[] } else { &sources },
+                )?;
+                Ok(
+                    json!({"kind": k.kind.id, "export": r, "next": "Train a LoRA on sft.jsonl with any vision-language fine-tuning tool, publish the weights, and add an [adapter] block (base, format, url, sha256) to kind.toml. docs/KINDS.md has a recipe."}),
+                )
+            }
+            other => fail(format!("unknown dataset action '{other}' (add, list, stats, export, source)")),
+        }
+    }
+
     /* ---------------- clips ---------------- */
 
     /// The recording to work on (a file, or a link fetched into the project) and the
@@ -897,7 +1055,11 @@ impl Ctx {
                     return Ok(json!({"clips": stories, "notes": notes}));
                 }
                 let (style, font_note) = self.text_style(&p);
-                let (w, h) = match s(a, "aspect").as_deref().unwrap_or("9:16") {
+                // the project's edit kind fills in whatever the call did not say
+                let kd = p.config.kind.as_deref().and_then(|k| crate::kinds::find(&self.home, k).ok()).map(|l| l.kind.defaults).unwrap_or_default();
+                let captions = !b(a, "no_captions") && kd.captions.unwrap_or(true);
+                let score_region = s(a, "score_region").or(kd.score_region.clone());
+                let (w, h) = match s(a, "aspect").or(kd.aspect.clone()).as_deref().unwrap_or("9:16") {
                     "1:1" => (1080, 1080),
                     "4:5" => (1080, 1350),
                     "16:9" => (1920, 1080),
@@ -907,15 +1069,16 @@ impl Ctx {
                 let sound_events: Vec<clips::Event> =
                     motion::render::find_ffmpeg().and_then(|ff| clips::analyse_audio(&ff, &file).ok()).map(|au| clips::events(&au, 60)).unwrap_or_default();
                 // the outcomes (score changes) the cut must not stop short of
-                let score_changes: Vec<f64> = match (s(a, "score_region").as_deref().and_then(clips::parse_regions), motion::render::find_ffmpeg()) {
+                let score_kept: Vec<(usize, f64)> = match (score_region.as_deref().and_then(clips::parse_regions), motion::render::find_ffmpeg()) {
                     (Some(rs), Some(ff)) => {
                         let lo = stories.iter().flat_map(|s| s.segments.iter().map(|x| x.start)).fold(f64::MAX, f64::min);
                         let hi = stories.iter().flat_map(|s| s.segments.iter().map(|x| x.end)).fold(0.0, f64::max);
                         let per: Vec<Vec<f64>> = rs.iter().map(|r| clips::region_changes(&ff, &file, (lo - 8.0).max(0.0), hi + 15.0, *r).unwrap_or_default()).collect();
-                        clips::score_changes(&per).0.into_iter().map(|(_, t)| t).collect()
+                        clips::score_changes(&per).0
                     }
                     _ => Vec::new(),
                 };
+                let score_changes: Vec<f64> = score_kept.iter().map(|(_, t)| *t).collect();
                 let mut built: Vec<Value> = Vec::new();
                 for (i, st) in stories.iter_mut().enumerate() {
                     notes.extend(story::resolve_context(st, &cues));
@@ -925,15 +1088,15 @@ impl Ctx {
                         out: out_dir.join(format!("{name}.mp4")),
                         width: w,
                         height: h,
-                        layout: s(a, "layout").unwrap_or_else(|| "fit".into()),
-                        captions: !b(a, "no_captions"),
+                        layout: s(a, "layout").or(kd.layout.clone()).unwrap_or_else(|| "fit".into()),
+                        captions,
                         language: s(a, "language").unwrap_or_else(|| "auto".into()),
                         style: style.clone(),
-                        max_pause: n(a, "max_pause").unwrap_or(0.55),
-                        breath: n(a, "breath").or(fonts::load_prefs(&self.home).cut_breath).unwrap_or(0.4).clamp(0.0, 1.5),
+                        max_pause: n(a, "max_pause").or(kd.max_pause).unwrap_or(0.55),
+                        breath: n(a, "breath").or(kd.breath).or(fonts::load_prefs(&self.home).cut_breath).unwrap_or(0.4).clamp(0.0, 1.5),
                         punch: !b(a, "no_punch"),
-                        transition: s(a, "transition").unwrap_or_else(|| "zoom".into()),
-                        sfx: !b(a, "no_sfx"),
+                        transition: s(a, "transition").or(kd.transition.clone()).unwrap_or_else(|| "zoom".into()),
+                        sfx: !b(a, "no_sfx") && kd.sfx.unwrap_or(true),
                         snap: !b(a, "no_snap"),
                         rough: cues.clone(),
                     };
@@ -945,6 +1108,13 @@ impl Ctx {
                     checks.extend(story::payoff_checks(&r.cut, &score_changes));
                     let _ = assets::register_file(&p, Path::new(&r.out), "clip", vec!["story".into(), name.clone()]);
                     write_atomic(&out_dir.join(format!("{name}.story.json")), serde_json::to_string_pretty(&st)?.as_bytes())?;
+                    // what `dataset add` needs to turn this clip into a training example
+                    let mut events: Vec<crate::dataset::Event> =
+                        score_kept.iter().map(|(team, t)| crate::dataset::Event { t: *t, what: "goal".into(), team: Some(*team) }).collect();
+                    events.extend(st.segments.iter().flat_map(|s| s.hits.iter()).map(|t| crate::dataset::Event { t: *t, what: "hit".into(), team: None }));
+                    let record =
+                        crate::dataset::BuildRecord { source: path_str(&file), cut: r.cut.clone(), events, checks: checks.clone(), tool: env!("CARGO_PKG_VERSION").into() };
+                    write_atomic(&out_dir.join(format!("{name}.build.json")), serde_json::to_string_pretty(&record)?.as_bytes())?;
                     let mut v = serde_json::to_value(&r)?;
                     v["name"] = json!(name);
                     v["title"] = json!(st.title);
@@ -971,7 +1141,7 @@ impl Ctx {
                     None,
                 )?;
                 self.refresh(&p);
-                if built.iter().any(|b| b["captions"] != "whisper") && !b(a, "no_captions") {
+                if built.iter().any(|b| b["captions"] != "whisper") && captions {
                     notes.push("captions did not come from whisper: run `editemos tools install-whisper` for accurate, word-timed captions".into());
                 }
                 Ok(json!({"clips": built, "typeface": font_note, "notes": notes, "images": built.iter().filter_map(|b| b.get("contact").cloned()).collect::<Vec<_>>(),

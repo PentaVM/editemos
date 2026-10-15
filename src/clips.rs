@@ -265,6 +265,10 @@ pub fn fetch(url: &str, dir: &Path, max_height: u32, section: Option<&str>) -> R
     let Some(video) = video else {
         return fail(format!("yt-dlp could not fetch {url}: {}", crate::util::truncate_chars(String::from_utf8_lossy(&out.stderr).trim(), 300)));
     };
+    // where it came from, so an edit of it can be shared as a training example by link
+    if !crate::dataset::sidecar(&video).exists() {
+        let _ = crate::dataset::write_source(&video, Some(url), section);
+    }
     let stem = video.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
     // the language that was actually spoken ("-orig") before any machine translation
     let mut subs: Vec<PathBuf> = std::fs::read_dir(dir)?

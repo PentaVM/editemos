@@ -23,6 +23,14 @@ cargo clippy --all-targets -- -D warnings
 - **Test what you claim.** A render test decodes a frame and looks at its alpha. A clips test
   measures the output frame. Follow that standard.
 
+## Adding an edit kind (no Rust needed)
+
+The easiest contribution: write down a type of edit you know. Add `kinds/<id>/kind.toml` (and,
+if you have them, `kinds/<id>/examples.jsonl` from `editemos dataset add`), run
+`editemos kinds validate <id>`, and open a pull request. Text only, never footage; a licence
+that allows training (CC0-1.0, CC-BY-4.0, MIT, Apache-2.0). Everything about the format, the
+dataset and training an adapter is in [docs/KINDS.md](docs/KINDS.md).
+
 ## Adding a motion template
 
 1. Put `templates/<kind>.html` next to the others. It must read the edit-brand tokens from the

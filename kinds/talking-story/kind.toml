@@ -1,0 +1,29 @@
+id = "talking-story"
+name = "Talking story clip"
+description = "A 30 to 60 second story cut from a creator talking (a stream, a podcast, a vlog): hook first, dead air removed, set-up and payoff even when they were minutes apart, word-by-word captions."
+version = "1"
+license = "CC0-1.0"
+authors = ["editemos"]
+tags = ["creator", "stream", "podcast", "captions", "vertical"]
+rules = [
+  "Open on the best line, not the first one: the hook is in the first two seconds.",
+  "Several segments in the order they should play; bring the set-up from wherever it was said.",
+  "Hold 300 to 500 ms after the last word of a segment before cutting, unless the abrupt cut is itself the joke (end: punchline).",
+  "Context labels only when a viewer would be lost, at most four words, found by searching what was said.",
+  "A title of at most six words that says what is about to happen without spoiling it.",
+  "Skip sponsor reads and greetings.",
+]
+
+[defaults]
+aspect = "9:16"
+layout = "crop"
+transition = "zoom"
+breath = 0.4
+max_pause = 0.55
+captions = true
+sfx = true
+clip_seconds = 60.0
+
+[target]
+median_shot = 3.0
+loudness_lufs = -14.0

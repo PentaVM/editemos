@@ -282,6 +282,27 @@ the page is checked for text cut by the frame edge, outside the 5% safe margin, 
 too small for a phone, or with low contrast against its own background. The agent looks at
 the stills, fixes the scene, renders again.
 
+## Edit kinds, and data anyone can add to
+
+A type of edit is written down as an **edit kind**: a folder with a `kind.toml` (what it is, the
+rules an editor of it follows, defaults for `clips build`) and the examples it learns from.
+Three ship with editemos (`gameplay-highlights`, `talking-story`, `calm-documentary`); anyone
+can write one and share it by pull request.
+
+```bash
+editemos kinds use gameplay-highlights              # this project makes this kind of edit
+editemos clips build vod.mp4 --spec-file plan.json  # the kind fills in layout, transitions, pauses...
+editemos dataset add clips/the-play.mp4 --verdict corrected --correction wanted.json --notes "end after the goal"
+editemos dataset export --out ./train               # frames + plans for a LoRA, and preference pairs
+editemos kinds adapter gameplay-highlights          # once one is published: download, verify, load
+```
+
+Every clip someone approves, corrects or rejects becomes an example of its kind. Examples point
+at their footage by link and never contain it, so they can be shared. Exported, they are a
+training set for a LoRA on a vision-language model; the adapter is published in the kind and a
+local model planning with it is based on that kind of edit. How to write, record, train and
+share: [docs/KINDS.md](docs/KINDS.md).
+
 ## Make it like this one
 
 ```bash

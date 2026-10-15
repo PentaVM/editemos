@@ -104,6 +104,10 @@ STORY CLIPS (edited, not just cut out)
   clips build <recording> --spec-file plan.json       build a plan you or your agent wrote
         segments in any order, pauses removed, word-by-word captions from the clip's own audio,
         a title, context flashes found by what was said, natural or punchline endings
+  kinds [list] | kinds show <id> | kinds use <id>     open types of edit: rules, defaults, examples, adapters
+  kinds new <name> [--from id] | kinds validate <id> | kinds sync | kinds adapter <id>
+  dataset add <clip.mp4> --verdict approved|corrected|rejected [--notes TEXT] [--correction plan.json]
+  dataset stats | dataset list | dataset export [--out dir] | dataset source <file> --url U [--section S]
   reference <video or link> [--name N]                reverse-engineer an edit: cut rhythm, grade, loudness
   reference compare <name> <our cut>                  where our cut matches it and what to change
   reference apply <name> | reference list             adopt its tempo in the edit brand
@@ -836,6 +840,35 @@ fn run(argv: &[String]) -> Result<()> {
                 }
                 _ => println!("{}", pretty(&r)),
             }
+        }
+        "kinds" => {
+            // kinds [list] | kinds show|use|validate|adapter <id> | kinds new <name> [--from id] | kinds sync
+            put(&mut m, "action", if sub.is_empty() { "list" } else { sub });
+            if let Some(x) = rest(&a, 2) {
+                put(&mut m, if sub == "new" { "name" } else { "kind" }, x);
+            }
+            let r = ctx.kinds_op(&Value::Object(m))?;
+            if (sub.is_empty() || sub == "list") && !json_out {
+                for k in r["kinds"].as_array().cloned().unwrap_or_default() {
+                    println!(
+                        "{} {:<22} {:>4} examples  {}",
+                        if k["in_use"] == true { "*" } else { " " },
+                        st(&k, "id"),
+                        k["examples"].as_u64().unwrap_or(0),
+                        editemos::util::truncate_chars(&st(&k, "description"), 90)
+                    );
+                }
+            } else {
+                println!("{}", pretty(&r));
+            }
+        }
+        "dataset" => {
+            // dataset [stats] | dataset add <clip> --verdict approved [--notes ".."] [--correction plan.json] | dataset list | dataset export [--out dir] | dataset source <file> --url U [--section S]
+            put(&mut m, "action", if sub.is_empty() { "stats" } else { sub });
+            if let Some(x) = a.pos.get(2) {
+                put(&mut m, if sub == "source" { "file" } else { "clip" }, x.clone());
+            }
+            println!("{}", pretty(&ctx.dataset_op(&Value::Object(m))?));
         }
         "reference" => {
             match sub {

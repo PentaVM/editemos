@@ -24,6 +24,10 @@ pub struct ProjectConfig {
     /// Preferred agent adapter for `editemos agent run`.
     #[serde(default)]
     pub adapter: Option<String>,
+    /// The edit kind this project makes (see `editemos kinds`): its rules go into the
+    /// context, its defaults into `clips build`, and its examples are recorded under it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
