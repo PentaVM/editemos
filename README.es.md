@@ -45,6 +45,11 @@ pides algo que ya hicieron.
 - **Ingeniería inversa de una referencia**: le das un video cuyo montaje quieres; mide el ritmo
   de cortes, el color y el volumen con sus pruebas, dice lo que no puede medir, y compara tu
   corte contra él rasgo por rasgo (`editemos reference`).
+- **Tipos de edición abiertos (kinds)**: un tipo de edición escrito como carpeta de texto
+  (reglas, valores por defecto, ejemplos y, cuando exista, un adaptador LoRA). Cada clip que
+  apruebas, corriges o rechazas queda como ejemplo de su tipo, apuntando al video por link y
+  sin contenerlo, y se exporta como set de entrenamiento. Cualquiera puede escribir uno y
+  compartirlo: [docs/KINDS.md](docs/KINDS.md).
 - **Guías de oficio incluidas**: cortes, historia en shorts, diseño sonoro, color, lenguaje de
   cámara, video generativo, motion estilo Remotion, cómo imitar una referencia.
 - **Modo clips**: le pasas un stream; escucha toda la grabación cientos de veces más rápido que

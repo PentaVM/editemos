@@ -68,6 +68,11 @@ pub fn build(home: &Home, p: &Project, opts: &PackOptions) -> String {
         sections.push((1, u));
     }
 
+    // the kind of edit this project makes: its rules and edits people approved
+    if let Some(c) = p.config.kind.as_deref().and_then(|k| crate::kinds::context(home, k, 2)) {
+        sections.push((1, format!("{c}\n")));
+    }
+
     // brand
     let mut b = String::from("## Brand\n\n");
     b.push_str(&format!("- Name: {}\n", brand.name));

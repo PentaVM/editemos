@@ -1,0 +1,26 @@
+id = "calm-documentary"
+name = "Calm documentary"
+description = "Longer horizontal pieces with room to breathe: interviews and observation, cuts that follow thought rather than energy, dissolves and sound bridges between places."
+version = "1"
+license = "CC0-1.0"
+authors = ["editemos"]
+tags = ["documentary", "interview", "horizontal", "long-form"]
+rules = [
+  "Let answers finish; keep the pause before a revealing line.",
+  "Cut on the look and on the thought, not on the beat.",
+  "Use a short dip or a sound bridge between places; never flashy transitions.",
+  "Lower thirds introduce a person once, the first time they speak.",
+]
+
+[defaults]
+aspect = "16:9"
+layout = "crop"
+transition = "dip"
+breath = 0.6
+max_pause = 1.2
+captions = true
+sfx = false
+
+[target]
+median_shot = 5.5
+loudness_lufs = -16.0

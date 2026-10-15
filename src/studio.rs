@@ -365,7 +365,19 @@ pub fn bind(port: u16) -> Result<(TcpListener, String)> {
 pub fn serve(ctx: &Ctx, listener: TcpListener) {
     std::thread::scope(|sc| {
         for stream in listener.incoming().flatten() {
-            sc.spawn(move || handle(ctx, stream));
+            sc.spawn(move || {
+                let keep = stream.try_clone();
+                handle(ctx, stream);
+                // close gracefully: a socket dropped with unread bytes is reset on
+                // Windows, and the browser loses a response it was already sent
+                if let Ok(mut s) = keep {
+                    let _ = s.flush();
+                    let _ = s.shutdown(std::net::Shutdown::Write);
+                    let _ = s.set_read_timeout(Some(std::time::Duration::from_millis(300)));
+                    let mut sink = [0u8; 4096];
+                    while matches!(s.read(&mut sink), Ok(n) if n > 0) {}
+                }
+            });
         }
     });
 }

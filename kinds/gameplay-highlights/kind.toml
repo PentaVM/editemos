@@ -1,0 +1,36 @@
+# An edit kind: what this type of edit is, how it is cut, and what a model
+# should learn from. Contribute one by opening a pull request with a folder
+# like this one (see docs/KINDS.md). Text only: never footage.
+
+id = "gameplay-highlights"
+name = "Gameplay highlights"
+description = "Short vertical highlights of a match from gameplay footage, often with no voice: every clip is plays that end in an outcome (goal, save, demolition), cut on the scoreboard, with zoom-throughs between plays and weight on every impact."
+version = "1"
+license = "CC0-1.0"
+authors = ["editemos"]
+tags = ["gaming", "rocket-league", "esports", "no-voice", "vertical"]
+rules = [
+  "Every clip contains a payoff: a goal, a save, a demolition, an aerial, a near miss. Rotations and driving around the map are not highlights.",
+  "Find goals by the scoreboard (clips score with one region per team), then confirm each one on the frames before using it.",
+  "Never end a segment while a player is still driving at the ball or before the score changes: show the outcome, then cut.",
+  "Each goal segment starts where the play that led to it starts (a kickoff, a clear, a pass) and ends after the explosion; replays only when the play needs them.",
+  "Mark every impact in its segment with hits (the touch that scores, the save) so it gets a punch-in, a shake, a flash and a hit sound.",
+  "Carry the match state in labels that change when the facts change: clock and score before the goal, the new score and the scorer after it.",
+  "Leave out menus, pause screens and settings the player opened mid-match; cut before they appear.",
+  "Hard cuts inside a play, zoom-throughs between plays. No dips to black.",
+]
+
+[defaults]
+aspect = "9:16"
+layout = "fit"
+transition = "zoom"
+breath = 0.0
+max_pause = 0.0
+captions = false
+sfx = true
+clip_seconds = 60.0
+
+[target]
+# what a good one measures like (editemos reference): fast but not a metronome
+median_shot = 6.0
+loudness_lufs = -14.0
