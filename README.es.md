@@ -37,7 +37,7 @@ le ponen a cada proyecto el mismo fundido con deslizamiento y escriben un script
 que pides algo que ya hicieron.
 
 **editemos** le da a cada cliente, canal o película su propia **marca de edición** y una
-**memoria que vive en disco**. Es un solo binario rápido (Rust, 8,8 MB, arranca en unos 20 ms)
+**memoria que vive en disco**. Es un solo binario rápido (Rust, unos 11 MB, arranca en unos 20 ms)
 que corre dentro de Claude, Codex, Gemini o un modelo local como servidor MCP, como skill
 `/editemos`, como herramienta de línea de comandos y como una página en vivo al lado de tu
 editor. El editor sigues siendo tú: todo lo que hace aparece mientras lo hace, en archivos que
@@ -552,7 +552,7 @@ otra compilación; la corrida en reposo y el método están en [docs/BENCHMARKS.
 | Qué | Resultado | Detalle |
 | --- | ---: | --- |
 | arrancar el binario | 19 ms | `editemos --version`, mediana de 10 |
-| tamaño del binario | 8,8 MB | un archivo, sin runtime |
+| tamaño del binario | 11 MB | un archivo, sin runtime (Windows; 9 MB en macOS) |
 | crear un proyecto con su marca de edición | 58 ms | |
 | escribir una memoria | 0,6 ms | promedio sobre 5.000 |
 | buscar en la memoria | 12 ms | BM25 sobre 5.000 memorias |
@@ -565,7 +565,7 @@ otra compilación; la corrida en reposo y el método están en [docs/BENCHMARKS.
 
 ## Estado
 
-Versión 0.5. 90 tests (unitarios, MCP por tuberías reales, extracción contra un sitio local, un
+Versión 0.6. 90 tests (unitarios, MCP por tuberías reales, extracción contra un sitio local, un
 render cuyo alfa se decodifica y revisa, clips cuyo cuadro de salida se mide, un master 4K leído
 con ffprobe, la API del studio y sus protecciones) corren en Windows, Linux y macOS en CI. Sin
 rodeos:

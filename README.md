@@ -39,7 +39,7 @@ chats, give every project the same fade-and-slide-up, and write a new script eac
 for something they already made.
 
 **editemos** gives every client, channel or film its own **edit brand** and a **memory that
-lives on disk**. It is one fast binary (Rust, 8.8 MB, starts in about 20 ms) that runs inside
+lives on disk**. It is one fast binary (Rust, about 11 MB, starts in about 20 ms) that runs inside
 Claude, Codex, Gemini or a local model as an MCP server, as a `/editemos` skill, as a
 command-line toolkit, and as a live page next to your editor. You stay the editor: everything it
 makes shows up as it is made, in files you can open, change and keep.
@@ -549,7 +549,7 @@ unrelated compile; the quiet run and the method are in [docs/BENCHMARKS.md](docs
 | What | Result | Detail |
 | --- | ---: | --- |
 | start the binary | 19 ms | `editemos --version`, median of 10 |
-| binary size | 8.8 MB | one file, no runtime |
+| binary size | 11 MB | one file, no runtime (Windows; 9 MB on macOS) |
 | create a project with its edit brand | 58 ms | |
 | write a memory | 0.6 ms | average over 5,000 |
 | search memory | 12 ms | BM25 over 5,000 memories |
@@ -562,7 +562,7 @@ unrelated compile; the quiet run and the method are in [docs/BENCHMARKS.md](docs
 
 ## Status
 
-Version 0.5. 90 tests (unit, MCP over real pipes, extraction against a local site, a render whose
+Version 0.6. 90 tests (unit, MCP over real pipes, extraction against a local site, a render whose
 alpha is decoded and checked, clips whose output frame is measured, a 4K master read back with
 ffprobe, the studio's API and guards) run on Windows, Linux and macOS in CI. Honestly:
 

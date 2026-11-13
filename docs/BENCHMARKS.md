@@ -31,7 +31,7 @@ while an unrelated compile job was using the CPU and the machine was short of me
 | clips: listen to a recording | 226x | 736x | 60 minutes of audio, loudness every 100 ms plus every pause |
 | clips: choose the moments | 9.6 ms | 5.7 ms | 8 clips from 36,000 samples and 515 pauses |
 
-Binary size: 8.8 MB, one file, no runtime.
+Binary size: about 11 MB on Windows and Linux, 9 MB on macOS; one file, no runtime.
 
 ## What the numbers do and do not say
 
