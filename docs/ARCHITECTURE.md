@@ -15,8 +15,10 @@ One Rust crate, one binary, no async runtime, no build scripts.
  store      memory      extract      brand       motion      clips     kdenlive     skills
  projects   JSONL+BM25  native       edit brand  templates   loudness  inspect      catalog
  on disk    context     browser(CDP) derivation  lint        + pauses  diff         sync+scan
-            pack        scrapling                render      export    overlay
-                                                 library               learn
+            pack        scrapling                render      export    overlay      craft guides
+                                                 library   deliver     learn
+                                                           (masters,
+                                                            ffprobe)
                                                       |
                                    session (agent in its own window, built-in chat)
                                    studio  (live local page)        adapters (any model)
@@ -77,6 +79,23 @@ Candidate clips start where a pause ends and end where one begins; each is score
 recording as a whole (level, variation, share of the loudest tenth, a hook in the first three
 seconds, and words when a transcript is given). The best non-overlapping ones are exported in
 parallel, reframed by scale-to-cover and centre crop.
+
+## Delivery pipeline
+
+`deliver.rs` turns a finished cut into a platform master in one encode. ffprobe reads the
+source (size, frame rate, duration, audio); ffmpeg measures its loudness (EBU R128 with true
+peak) so a gain and a limiter can go into the same pass; the picture is scaled once with lanczos
+(letterboxed when the shape differs) and subtitles are drawn after the scale, at the output
+resolution, from a copy placed next to the output (the filter parser dislikes drive letters).
+x264 High with a GOP of half a second, two B-frames and bt709 tags, AAC at 48 kHz, faststart.
+Then ffprobe reads the master and every difference from what was asked (size, frame rate,
+duration, audio, pixel format) is returned as a problem. Nothing is assumed from the exit code.
+
+## Craft guides and kinds
+
+`assets/craft/*.md` are compiled into the binary and installed as the `editemos-craft` skill, so
+`skills list/read/export` treat them like any downloaded skill. `kinds/*/kind.toml` are compiled in
+the same way. Both are plain text a contributor can change without touching Rust.
 
 ## Why no plugin inside Kdenlive
 

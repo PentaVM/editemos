@@ -72,6 +72,14 @@ where a dissolve or a sound bridge also tells the viewer "elsewhere".
 - Cut out the dead air, not the breathing. Remove pauses inside a thought; keep the pause
   before a reveal.
 
+## Layers and the cut
+
+Titles, labels and graphics belong to a shot. Give every overlay an end (a 0.3 s fade, then
+trimmed) and check it against the cut: a six-second headline that starts four seconds before a
+cut sits on top of the next shot. Crossing a cut is allowed only when decided (a chapter card
+over a transition). If the voice already says it, the on-screen title is redundant: it
+competes with the voice instead of helping it.
+
 ## Checks before showing an edit
 
 - The first two seconds hook: the best line or image, not the first one.
@@ -80,3 +88,5 @@ where a dissolve or a sound bridge also tells the viewer "elsewhere".
 - No cut lands inside a word, no cut splits continuous footage without a reason.
 - Watch it with the sound off once (does the picture tell it?) and with eyes closed once
   (does the sound?).
+- No overlay crosses a cut by accident, no caption lands on interface text (guide
+  `frame-review` for doing this on every frame).

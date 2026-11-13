@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 270" width="960" height="270" role="img" aria-label="La marca se vuelve marca de edición, el proyecto guarda memoria, cualquier agente lee ambas, los renders salen con alfa, sonido y revisión, y cada decisión vuelve a la memoria.">
+  <title>Díselo Una Vez. Cada Video Corta Como Su Proyecto.</title>
+  <style>
+    .t { font-family: Bahnschrift, "Segoe UI", Inter, Helvetica, Arial, sans-serif; fill: #efe8da; }
+    .name { font-size: 17px; font-weight: 700; letter-spacing: .8px; }
+    .role { font-size: 12.5px; fill: #a79f8e; }
+    .head { font-size: 13px; fill: #a79f8e; letter-spacing: 1.8px; }
+    .box { fill: #1b1a18; stroke-width: 1.6; }
+    .wire { stroke: #ff4d2e; stroke-width: 2; }
+    .loop { fill: none; stroke: #3a3833; stroke-width: 2; stroke-dasharray: 4 6; }
+    .note { font-size: 12.5px; fill: #a79f8e; font-style: italic; }
+  </style>
+  <rect x="0" y="0" width="960" height="270" rx="22" fill="#0d0d0f"/>
+  <rect x="1" y="1" width="958" height="268" rx="21" fill="none" stroke="#3a3833" stroke-width="1.5"/>
+  <path d="M40 30V54" stroke="#ff4d2e" stroke-width="3"/>
+  <text class="t head" x="52" y="47">DÍSELO UNA VEZ. CADA VIDEO CORTA COMO SU PROYECTO.</text>
+  <line class="wire" x1="203" y1="130" x2="213" y2="130"/>
+  <path d="M212 125L219 130L212 135Z" fill="#ff4d2e"/>
+  <line class="wire" x1="383" y1="130" x2="393" y2="130"/>
+  <path d="M392 125L399 130L392 135Z" fill="#ff4d2e"/>
+  <line class="wire" x1="563" y1="130" x2="573" y2="130"/>
+  <path d="M572 125L579 130L572 135Z" fill="#ff4d2e"/>
+  <line class="wire" x1="743" y1="130" x2="753" y2="130"/>
+  <path d="M752 125L759 130L752 135Z" fill="#ff4d2e"/>
+  <g>
+    <rect class="box" x="40" y="88" width="160" height="84" rx="14" stroke="#ff4d2e"/>
+    <text class="t name" x="60" y="122">MARCA</text>
+    <text class="t role" x="60" y="146">sitio · perfil · logo</text>
+    <text class="t role" x="60" y="162">o tus palabras</text>
+  </g>
+  <g>
+    <rect class="box" x="220" y="88" width="160" height="84" rx="14" stroke="#efe8da"/>
+    <text class="t name" x="240" y="122">EDICIÓN</text>
+    <text class="t role" x="240" y="146">tempo · cuatro curvas</text>
+    <text class="t role" x="240" y="162">duraciones · tipos</text>
+  </g>
+  <g>
+    <rect class="box" x="400" y="88" width="160" height="84" rx="14" stroke="#a79f8e"/>
+    <text class="t name" x="420" y="122">MEMORIA</text>
+    <text class="t role" x="420" y="146">decisiones · rechazos</text>
+    <text class="t role" x="420" y="162">gusto, en disco</text>
+  </g>
+  <g>
+    <rect class="box" x="580" y="88" width="160" height="84" rx="14" stroke="#efe8da"/>
+    <text class="t name" x="600" y="122">AGENTE</text>
+    <text class="t role" x="600" y="146">Claude · Codex · Gemini</text>
+    <text class="t role" x="600" y="162">o un modelo local</text>
+  </g>
+  <g>
+    <rect class="box" x="760" y="88" width="160" height="84" rx="14" stroke="#ff4d2e"/>
+    <text class="t name" x="780" y="122">RENDER</text>
+    <text class="t role" x="780" y="146">alfa · sonido</text>
+    <text class="t role" x="780" y="162">revisado al asentarse</text>
+  </g>
+  <path class="loop" d="M840 176V212H480V180"/>
+  <path d="M475 186L480 177L485 186Z" fill="#3a3833"/>
+  <text class="t note" x="660" y="234" text-anchor="middle">cada decisión que tomas vuelve a la memoria</text>
+</svg>

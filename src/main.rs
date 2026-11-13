@@ -77,6 +77,7 @@ const NUM_KEYS: &[&str] = &[
     "cols",
     "rows",
     "words",
+    "loudness",
 ];
 
 const HELP: &str = "\
@@ -111,6 +112,9 @@ STORY CLIPS (edited, not just cut out)
   reference <video or link> [--name N]                reverse-engineer an edit: cut rhythm, grade, loudness
   reference compare <name> <our cut>                  where our cut matches it and what to change
   reference apply <name> | reference list             adopt its tempo in the edit brand
+  deliver <cut> [--preset youtube-4k|youtube-1080|vertical] [--subtitles F.srt|F.ass] [--loudness -16]
+        [--fps N] [--speed slow] [--out F]   final master: scale, subtitles at output size, ffprobe check
+  deliver presets                                     what each target sets
   fonts [show|list] | fonts set <family> [--global] | fonts reject <family> [--global] [--reason R]
   tools install-whisper                               accurate captions, on this machine
   memory add \"...\" --global                           a preference for every project
@@ -414,6 +418,11 @@ fn h_doctor(v: &Value) -> String {
         opt("browser").unwrap_or_else(|| "none (Edge or Chrome needed for motion and the browser backend)".into())
     ));
     s.push_str(&format!("{} ffmpeg         {}\n", yes(opt("ffmpeg").is_some()), opt("ffmpeg").unwrap_or_else(|| "none (set EDITEMOS_FFMPEG)".into())));
+    s.push_str(&format!(
+        "{} ffprobe        {}\n",
+        yes(opt("ffprobe").is_some()),
+        opt("ffprobe").unwrap_or_else(|| "none (set EDITEMOS_FFPROBE; deliver cannot check its masters)".into())
+    ));
     let k = &v["kdenlive"];
     s.push_str(&format!(
         "{} kdenlive       {}{}{}\n",
@@ -869,6 +878,41 @@ fn run(argv: &[String]) -> Result<()> {
                 put(&mut m, if sub == "source" { "file" } else { "clip" }, x.clone());
             }
             println!("{}", pretty(&ctx.dataset_op(&Value::Object(m))?));
+        }
+        "deliver" => {
+            if sub == "presets" {
+                put(&mut m, "action", "presets");
+            } else {
+                let Some(f) = a.pos.get(1) else { return fail("deliver <finished cut> [--preset youtube-4k|youtube-1080|vertical] [--subtitles F.srt] [--loudness -16]") };
+                put(&mut m, "file", f.clone());
+            }
+            let r = ctx.deliver_op(&Value::Object(m))?;
+            if json_out || sub == "presets" {
+                println!("{}", pretty(&r));
+            } else {
+                let check = &r["check"];
+                println!("master:   {}", st(&r, "file"));
+                if let Some(p) = check.get("probe").filter(|p| !p.is_null()) {
+                    println!(
+                        "probe:    {}x{} at {} fps, {:.3} s, audio {}",
+                        st(p, "width"),
+                        st(p, "height"),
+                        st(p, "fps_rational"),
+                        p["duration"].as_f64().unwrap_or(0.0),
+                        st(p, "audio")
+                    );
+                }
+                if let Some(l) = r.get("loudness").filter(|l| !l.is_null()) {
+                    println!("loudness: {} LUFS, true peak {} dBTP (target {})", st(l, "after_lufs"), st(l, "true_peak_dbtp"), st(l, "target"));
+                }
+                if !st(&r, "srt").is_empty() {
+                    println!("srt:      {}", st(&r, "srt"));
+                }
+                println!("check:    {}", if check["ok"] == true { "ok".to_string() } else { format!("PROBLEMS: {}", check["problems"]) });
+                for n in r["notes"].as_array().into_iter().flatten() {
+                    println!("note:     {}", n.as_str().unwrap_or(""));
+                }
+            }
         }
         "reference" => {
             match sub {

@@ -41,6 +41,12 @@ process, not a render.
 - Fix the seed when the tool allows it to make variations of one take.
 - Grade generated shots together with real footage so they match.
 
+## Real before generated
+
+When the video is about a product, show the product: record the real interface (guide
+`screen-capture`) and never let a model draw or simulate it. Visualisations built from the
+product's real outputs are fine; say which shots they are in the description.
+
 ## Honesty and rights
 
 - Say which shots are generated when the context calls for it (news, documentary, ads with

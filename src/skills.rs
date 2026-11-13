@@ -452,7 +452,9 @@ pub fn front_matter(text: &str) -> (String, String) {
 }
 
 /// Craft guides that ship inside the binary (cutting, story, sound, colour,
-/// camera, generative video, Remotion-style motion, reverse-engineering a reference).
+/// camera, generative video, Remotion-style motion, reverse-engineering a reference,
+/// pitch videos, screen capture, voice and captions, frame review, delivery, 3D,
+/// and the open-source stack around editemos).
 pub const CRAFT: &[(&str, &str)] = &[
     ("cutting", include_str!("../assets/craft/cutting.md")),
     ("story-shorts", include_str!("../assets/craft/story-shorts.md")),
@@ -462,6 +464,13 @@ pub const CRAFT: &[(&str, &str)] = &[
     ("generative-video", include_str!("../assets/craft/generative-video.md")),
     ("motion-remotion", include_str!("../assets/craft/motion-remotion.md")),
     ("reverse-engineer-a-reference", include_str!("../assets/craft/reverse-engineer-a-reference.md")),
+    ("pitch-video", include_str!("../assets/craft/pitch-video.md")),
+    ("screen-capture", include_str!("../assets/craft/screen-capture.md")),
+    ("voice-and-captions", include_str!("../assets/craft/voice-and-captions.md")),
+    ("frame-review", include_str!("../assets/craft/frame-review.md")),
+    ("delivery", include_str!("../assets/craft/delivery.md")),
+    ("3d-scenes", include_str!("../assets/craft/3d-scenes.md")),
+    ("open-source-stack", include_str!("../assets/craft/open-source-stack.md")),
 ];
 pub const CRAFT_ID: &str = "editemos-craft";
 

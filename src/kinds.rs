@@ -24,6 +24,7 @@ pub const BUILTIN: &[(&str, &str)] = &[
     ("gameplay-highlights", include_str!("../kinds/gameplay-highlights/kind.toml")),
     ("talking-story", include_str!("../kinds/talking-story/kind.toml")),
     ("calm-documentary", include_str!("../kinds/calm-documentary/kind.toml")),
+    ("product-pitch", include_str!("../kinds/product-pitch/kind.toml")),
 ];
 
 /// Where community kinds are published: this repository's `kinds/` folder.

@@ -13,6 +13,7 @@ pub mod clips;
 pub mod color;
 pub mod context;
 pub mod dataset;
+pub mod deliver;
 pub mod error;
 pub mod extract;
 pub mod fonts;

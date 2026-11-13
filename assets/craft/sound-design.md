@@ -35,11 +35,29 @@ tween (`sfx: 'whoosh'`, or `{ kind: 'thud', at: 'end' }`) so it moves with the m
 the timing changes. Keep cues on a beat grid when there is music (`Motion.beat(n, bpm)`).
 Fewer, better: one sound per idea, not per element.
 
+In a product demo or pitch, effects go **only on real events** in the picture: a click in the
+take, the moment the agent takes control, the answer arriving. A whoosh on every title is noise.
+
+## Narration and music
+
+- The voice leads; music ducks under it with a sidechain compressor (or keyframed -8 to -14 dB),
+  and comes back up in the gaps.
+- A recorded voice always goes through the same chain: rumble filter, noise reduction,
+  de-essing, dynamics, breaths lowered rather than cut, -16 LUFS. Measure each clip.
+- Synthetic narration, one line per request with the lines around it as context, checked by
+  transcription (guide `voice-and-captions`).
+- Music and effects with a licence, logged in a `LICENSES_AND_ASSETS.md` from the start. A
+  temporary track stays on its own track until it is replaced.
+- Synths and designed stingers can come from code: Tone.js rendered offline to a WAV and placed
+  as a `file` cue (guide `open-source-stack`).
+
 ## Loudness
 
 - Streaming platforms normalise to about -14 LUFS integrated (some -13 to -16). Deliver near
   it so the platform does not turn you down or up.
+- A narrated pitch or demo on YouTube: -16 LUFS integrated works well (speech-led, room for
+  the voice); short clips: -14 LUFS (what `clips build` delivers).
 - Broadcast: -23 LUFS (EBU R128) or -24 LKFS (ATSC).
-- True peak below -1 dBTP so encoding does not clip.
+- True peak below -1.5 dBTP so encoding does not clip.
 - Measure (`reference` reports integrated loudness and range); do not judge by ear on laptop
   speakers.

@@ -1,0 +1,31 @@
+id = "product-pitch"
+name = "Product pitch or demo"
+description = "A narrated 1 to 3 minute horizontal video that shows a real product working: screen recordings of the real app, graphics made from its real outputs, optional 3D scenes, a voice that explains what is on screen, captions, delivered as a 4K60 master."
+version = "1"
+license = "CC0-1.0"
+authors = ["editemos"]
+tags = ["pitch", "demo", "launch", "hackathon", "screen-recording", "narration", "horizontal"]
+rules = [
+  "Every voice line says one concrete thing that is on screen at that moment; no slogans in the negative, no lists of three, numbers with their honest caveat.",
+  "Write each line twice: the caption text and how it is spoken (brand names, model numbers and acronyms spelled for the voice).",
+  "Show the real product, recorded from the commit being presented in a deterministic demo mode; never simulate the interface or record against a live API.",
+  "Reserve the caption band before designing graphics; titles that coincide with a narrator line go top left.",
+  "If the voice already says it, leave the on-screen title out.",
+  "No overlay crosses a shot cut unless that was decided; every overlay has an end with a 0.3 s fade.",
+  "Sound effects only on real events in the picture: a click, the hand-over of control, an answer arriving.",
+  "Say what is a real capture and what is a visualisation in the description, not in one-second tags on screen.",
+  "Check every frame for layers touching each other or landing on interface text before showing the cut.",
+]
+
+[defaults]
+aspect = "16:9"
+layout = "fit"
+transition = "cut"
+breath = 0.35
+max_pause = 0.6
+captions = true
+sfx = true
+
+[target]
+median_shot = 4.0
+loudness_lufs = -16.0

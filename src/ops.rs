@@ -1440,6 +1440,39 @@ impl Ctx {
 
     /* ---------------- doctor ---------------- */
 
+    /// A final master for a platform (YouTube 4K or 1080p, vertical), checked with ffprobe.
+    pub fn deliver_op(&self, a: &Value) -> Result<Value> {
+        if s(a, "action").as_deref() == Some("presets") {
+            return Ok(json!({"presets": crate::deliver::PRESETS}));
+        }
+        let Some(file) = s(a, "file") else { return fail("deliver needs file=<the finished cut> (action=presets lists the targets)") };
+        let Some(ffmpeg) = motion::render::find_ffmpeg() else { return fail("ffmpeg not found (set EDITEMOS_FFMPEG)") };
+        let id = s(a, "preset").unwrap_or_else(|| "youtube-4k".into());
+        let Some(preset) = crate::deliver::preset(&id) else {
+            return fail(format!("unknown preset '{id}': {}", crate::deliver::PRESETS.iter().map(|p| p.id).collect::<Vec<_>>().join(", ")));
+        };
+        let input = PathBuf::from(&file);
+        let stem = input.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_else(|| "master".into());
+        let out = match s(a, "out") {
+            Some(o) => PathBuf::from(o),
+            None => match self.project(a) {
+                Ok(p) => p.dir.join("exports").join(format!("{stem}.{id}.mp4")),
+                Err(_) => input.with_file_name(format!("{stem}.{id}.mp4")),
+            },
+        };
+        let o = crate::deliver::Options {
+            input,
+            out,
+            preset,
+            subtitles: s(a, "subtitles").map(PathBuf::from),
+            loudness: n(a, "loudness"),
+            fps: n(a, "fps"),
+            speed: s(a, "speed").unwrap_or_else(|| "slow".into()),
+        };
+        let d = crate::deliver::run(&ffmpeg, &o)?;
+        Ok(serde_json::to_value(&d)?)
+    }
+
     pub fn doctor(&self) -> Result<Value> {
         let k = kdenlive::status(false, None);
         let ad = adapters::load(&self.home);
@@ -1454,6 +1487,7 @@ impl Ctx {
             "projects": self.home.list().len(),
             "browser": crate::cdp::find_browser().map(|p| path_str(&p)),
             "ffmpeg": motion::render::find_ffmpeg().map(|p| path_str(&p)),
+            "ffprobe": motion::render::find_ffmpeg().and_then(|f| crate::deliver::find_ffprobe(&f)).map(|p| path_str(&p)),
             "kdenlive": {"installed": k.installed, "version": k.version, "running": k.running, "melt": k.melt},
             "scrapling": scr.map(|p| path_str(&p)),
             "agents_on_path": {"claude": cli_ok("claude"), "codex": cli_ok("codex"), "gemini": cli_ok("gemini"), "ollama": cli_ok("ollama")},

@@ -61,6 +61,23 @@ The renderer synthesises it, sample-exact, and puts it in the video (PCM in .mov
 - Text centred, huge, with a soft drop shadow.
 - Bounce and elastic easings.
 
+## Layout over real footage
+
+- Keep out of the caption band (in a 16:9 frame at 1080p, nothing below y 770)
+  and off the chips and docks of a recorded interface.
+- Elements that move as a group start together; 0.2 s apart they overlap on the way. Leave
+  more space between rows than an element is tall.
+- Fixed labels stay out of the path of anything that moves.
+- If a graphic would cover the real footage, move the footage (offset it, fade its edge into the
+  background) rather than squeezing the graphic.
+
+## Other libraries in a scene
+
+PixiJS, p5.js, Paper.js, Three.js, OGL, Anime.js, Matter.js, Rapier and GL Transitions all work
+in a scene once their own clock is stopped and each frame is drawn from `frame` alone; physics
+is stepped once from frame 0 and read back per frame. Recipes per library in the
+`open-source-stack` guide.
+
 ## Review loop (do it, every time)
 
 `editemos_motion render` returns `review`: one still per moment the scene comes to rest (a

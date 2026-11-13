@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 230" width="960" height="230" role="img" aria-label="Brief, prototype, animate, render, ship: one cut table and a script with text and pronunciation, control stills, motion and voice, frame-exact renders, a checked master.">
+  <title>Brief → Prototype → Animate → Render → Ship</title>
+  <style>
+    .t { font-family: Bahnschrift, "Segoe UI", Inter, Helvetica, Arial, sans-serif; fill: #efe8da; }
+    .name { font-size: 17px; font-weight: 700; letter-spacing: .8px; }
+    .role { font-size: 12.5px; fill: #a79f8e; }
+    .head { font-size: 13px; fill: #a79f8e; letter-spacing: 1.8px; }
+    .box { fill: #1b1a18; stroke-width: 1.6; }
+    .wire { stroke: #ff4d2e; stroke-width: 2; }
+    .loop { fill: none; stroke: #3a3833; stroke-width: 2; stroke-dasharray: 4 6; }
+    .note { font-size: 12.5px; fill: #a79f8e; font-style: italic; }
+  </style>
+  <rect x="0" y="0" width="960" height="230" rx="22" fill="#0d0d0f"/>
+  <rect x="1" y="1" width="958" height="228" rx="21" fill="none" stroke="#3a3833" stroke-width="1.5"/>
+  <path d="M40 30V54" stroke="#ff4d2e" stroke-width="3"/>
+  <text class="t head" x="52" y="47">BRIEF → PROTOTYPE → ANIMATE → RENDER → SHIP</text>
+  <line class="wire" x1="203" y1="130" x2="213" y2="130"/>
+  <path d="M212 125L219 130L212 135Z" fill="#ff4d2e"/>
+  <line class="wire" x1="383" y1="130" x2="393" y2="130"/>
+  <path d="M392 125L399 130L392 135Z" fill="#ff4d2e"/>
+  <line class="wire" x1="563" y1="130" x2="573" y2="130"/>
+  <path d="M572 125L579 130L572 135Z" fill="#ff4d2e"/>
+  <line class="wire" x1="743" y1="130" x2="753" y2="130"/>
+  <path d="M752 125L759 130L752 135Z" fill="#ff4d2e"/>
+  <g>
+    <rect class="box" x="40" y="88" width="160" height="84" rx="14" stroke="#ff4d2e"/>
+    <text class="t name" x="60" y="122">BRIEF</text>
+    <text class="t role" x="60" y="146">one cut table</text>
+    <text class="t role" x="60" y="162">text + say per line</text>
+  </g>
+  <g>
+    <rect class="box" x="220" y="88" width="160" height="84" rx="14" stroke="#efe8da"/>
+    <text class="t name" x="240" y="122">PROTOTYPE</text>
+    <text class="t role" x="240" y="146">control stills</text>
+    <text class="t role" x="240" y="162">caption band first</text>
+  </g>
+  <g>
+    <rect class="box" x="400" y="88" width="160" height="84" rx="14" stroke="#a79f8e"/>
+    <text class="t name" x="420" y="122">ANIMATE</text>
+    <text class="t role" x="420" y="146">motion · 3D · physics</text>
+    <text class="t role" x="420" y="162">voice · sound</text>
+  </g>
+  <g>
+    <rect class="box" x="580" y="88" width="160" height="84" rx="14" stroke="#efe8da"/>
+    <text class="t name" x="600" y="122">RENDER</text>
+    <text class="t role" x="600" y="146">frame-exact, alpha</text>
+    <text class="t role" x="600" y="162">every frame checked</text>
+  </g>
+  <g>
+    <rect class="box" x="760" y="88" width="160" height="84" rx="14" stroke="#ff4d2e"/>
+    <text class="t name" x="780" y="122">SHIP</text>
+    <text class="t role" x="780" y="146">4K60 master</text>
+    <text class="t role" x="780" y="162">ffprobe · .srt</text>
+  </g>
+</svg>

@@ -2,7 +2,7 @@
 
 An **edit kind** is a type of edit written down so anyone can use it, improve it and train a
 model on it: gameplay highlights, a talking story clip, a calm documentary, a fighting-game
-combo reel, a wedding teaser, a product launch. editemos ships three; everything else comes
+combo reel, a wedding teaser, a product launch. editemos ships four; everything else comes
 from people who edit that kind of video.
 
 A kind is a folder of text:
